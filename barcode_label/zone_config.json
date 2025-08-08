@@ -1,0 +1,61 @@
+{
+  "zones": {
+    "A": {
+      "name": "A 구역",
+      "color": "#2196F3",
+      "sections": {
+        "rows": 5,
+        "columns": 3,
+        "description": "화물엘리베이터 가는 통로 관리품장"
+      }
+    },
+    "B": {
+      "name": "B 구역",
+      "color": "#FF9800",
+      "sections": {
+        "rows": 5,
+        "columns": 3,
+        "description": "화물엘리베이터 가는 통로 관리품장"
+      }
+    },
+    "C": {
+      "name": "C구역",
+      "color": "#607D8B",
+      "sections": {
+        "rows": 5,
+        "columns": 3,
+        "description": "화물엘리베이터 가는 통로 관리품장"
+      }
+    },
+    "D": {
+      "name": "D 구역",
+      "color": "#00BCD4",
+      "sections": {
+        "rows": 4,
+        "columns": 3,
+        "description": "메인 복도 랙"
+      }
+    },
+    "E": {
+      "name": "E 구역",
+      "color": "#E91E63",
+      "sections": {
+        "rows": 5,
+        "columns": 3,
+        "description": "메인복도 관리품장"
+      }
+    },
+    "F": {
+      "name": "F 구역",
+      "color": "#FFC107",
+      "sections": {
+        "rows": 5,
+        "columns": 3,
+        "description": "메인복도 관리품장"
+      }
+    }
+  },
+  "default_location_format": "{zone}-{row:02d}-{col:02d}",
+  "max_zones": 10,
+  "max_sections_per_zone": 10
+}
