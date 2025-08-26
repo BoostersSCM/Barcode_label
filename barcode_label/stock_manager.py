@@ -1518,8 +1518,35 @@ class StockManager:
         try:
             # 현재 스크립트의 디렉토리를 기준으로 실행
             script_dir = os.path.dirname(os.path.abspath(__file__))
-            subprocess.Popen([sys.executable, "label_gui.py"], cwd=script_dir)
-            self.update_status("라벨 발행 창이 열렸습니다.")
+            label_gui_path = os.path.join(script_dir, "label_gui.py")
+            
+            # 파일 존재 확인
+            if not os.path.exists(label_gui_path):
+                messagebox.showerror("오류", f"label_gui.py 파일을 찾을 수 없습니다.\n경로: {label_gui_path}")
+                return
+            
+            # 환경 변수 설정 (부모 프로세스의 환경 변수 상속)
+            env = os.environ.copy()
+            env['PYTHONPATH'] = script_dir + os.pathsep + env.get('PYTHONPATH', '')
+            
+            # 프로세스 시작
+            process = subprocess.Popen(
+                [sys.executable, label_gui_path], 
+                cwd=script_dir,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            
+            # 프로세스 시작 확인
+            if process.poll() is None:
+                self.update_status("✅ 라벨 발행 창이 열렸습니다.")
+            else:
+                # 프로세스가 즉시 종료된 경우 오류 확인
+                stdout, stderr = process.communicate()
+                error_msg = stderr.decode('utf-8', errors='ignore') if stderr else "알 수 없는 오류"
+                messagebox.showerror("오류", f"라벨 발행 창을 시작할 수 없습니다:\n{error_msg}")
+                
         except Exception as e:
             messagebox.showerror("오류", f"라벨 발행 창을 열 수 없습니다: {e}")
     
