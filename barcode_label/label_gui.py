@@ -19,19 +19,40 @@ import base64
 import io
 import json
 import sqlite3
+import csv
+
+# 스크립트 디렉토리 설정
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 
 # 상위 디렉토리의 execute_query.py 임포트
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from execute_query import call_query
-from mysql_auth import boosta_boosters
-from boosters_query import q_boosters_items_for_barcode_reader, q_boosters_items_limit_date
+sys.path.append(PROJECT_ROOT)
+try:
+    from execute_query import call_query
+    from mysql_auth import boosta_boosters
+    from boosters_query import q_boosters_items_for_barcode_reader, q_boosters_items_limit_date
+except ImportError as e:
+    print(f"모듈 임포트 오류: {e}")
+    print(f"스크립트 디렉토리: {SCRIPT_DIR}")
+    print(f"프로젝트 루트: {PROJECT_ROOT}")
+    print(f"Python 경로: {sys.path}")
+    # 기본값 설정
+    call_query = None
+    boosta_boosters = None
+    q_boosters_items_for_barcode_reader = None
+    q_boosters_items_limit_date = None
 
 
 # ✅ CSV/엑셀에서 제품 리스트 불러오기
 def load_products():
     try:
-        df = call_query(q_boosters_items_for_barcode_reader.query,boosta_boosters)
-        df_limit_date = call_query(q_boosters_items_limit_date.query,boosta_boosters)
+        # 모듈이 제대로 임포트되었는지 확인
+        if call_query is None or boosta_boosters is None:
+            print("데이터베이스 모듈을 임포트할 수 없습니다. 기본 데이터를 사용합니다.")
+            return {"TEST001": "테스트 제품"}, {}, {}
+        
+        df = call_query(q_boosters_items_for_barcode_reader.query, boosta_boosters)
+        df_limit_date = call_query(q_boosters_items_limit_date.query, boosta_boosters)
         df = pd.merge(df, df_limit_date, on='제품코드', how='left')
         products_dict = dict(zip(df['제품코드'].astype(str), df['제품명']))
         
@@ -56,14 +77,287 @@ def load_products():
                     'unit': expiry_unit
                 }
         
+        print(f"제품 데이터 로드 성공: {len(products_dict)}개 제품")
         return products_dict, barcode_dict, expiry_info_dict
     except Exception as e:
         print(f"데이터베이스 연결 실패: {e}")
+        print(f"현재 작업 디렉토리: {os.getcwd()}")
+        print(f"스크립트 디렉토리: {SCRIPT_DIR}")
         # 기본 데이터 반환
         return {"TEST001": "테스트 제품"}, {}, {}
 
 # products, barcode_to_product = load_products("barcode_label/products.xlsx")  # 올바른 경로
-products, barcode_to_product, expiry_info = load_products()  
+products, barcode_to_product, expiry_info = load_products()
+
+# 바코드 히스토리 CSV 파일 관리
+def init_barcode_history_csv():
+    """바코드 히스토리 CSV 파일 초기화"""
+    csv_file = os.path.join(SCRIPT_DIR, "barcode_history.csv")
+    if not os.path.exists(csv_file):
+        # CSV 파일이 없으면 헤더와 함께 생성
+        headers = [
+            '생성된바코드숫자', '구분', '제품코드', '제품명', 'LOT', 
+            '유통기한', '폐기일자', '보관위치', '발행일시'
+        ]
+        with open(csv_file, 'w', newline='', encoding='utf-8-sig') as f:
+            writer = csv.writer(f)
+            writer.writerow(headers)
+        print(f"바코드 히스토리 CSV 파일 생성: {csv_file}")
+
+def save_barcode_to_history(barcode_number, category, product_code, product_name, lot, expiry, location):
+    """바코드 정보를 히스토리 CSV 파일에 저장"""
+    try:
+        csv_file = os.path.join(SCRIPT_DIR, "barcode_history.csv")
+        
+        # CSV 파일이 없으면 초기화
+        if not os.path.exists(csv_file):
+            init_barcode_history_csv()
+        
+        # 폐기일자 계산 (유통기한 + 1년)
+        disposal_date = "N/A"
+        if expiry and expiry != "N/A":
+            try:
+                expiry_date = pd.to_datetime(expiry)
+                disposal_date = expiry_date.replace(year=expiry_date.year + 1)
+                disposal_date = disposal_date.strftime("%Y-%m-%d")
+            except:
+                disposal_date = "N/A"
+        
+        # 현재 시간
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # CSV 파일에 데이터 추가
+        with open(csv_file, 'a', newline='', encoding='utf-8-sig') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                barcode_number,      # 생성된 바코드 숫자
+                category,            # 관리품/샘플재고 구분
+                product_code,        # 제품코드
+                product_name,        # 제품명
+                lot,                 # LOT
+                expiry,              # 유통기한
+                disposal_date,       # 폐기일자
+                location,            # 보관위치
+                current_time         # 발행일시
+            ])
+        
+        print(f"바코드 히스토리 저장 완료: {barcode_number} - {product_code}")
+        return True
+        
+    except Exception as e:
+        print(f"바코드 히스토리 저장 실패: {e}")
+        return False
+
+def get_barcode_history():
+    """바코드 히스토리 CSV 파일에서 데이터 읽기"""
+    try:
+        csv_file = "barcode_history.csv"
+        if os.path.exists(csv_file):
+            df = pd.read_csv(csv_file, encoding='utf-8-sig')
+            return df
+        else:
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"바코드 히스토리 읽기 실패: {e}")
+        return pd.DataFrame()
+
+# CSV 파일 초기화
+init_barcode_history_csv()
+
+def view_barcode_history():
+    """바코드 히스토리 확인 창"""
+    try:
+        # 바코드 히스토리 데이터 로드
+        df = get_barcode_history()
+        
+        if df.empty:
+            messagebox.showinfo("바코드 히스토리", "아직 생성된 바코드가 없습니다.")
+            return
+        
+        # 히스토리 창 생성
+        history_window = tk.Toplevel(root)
+        history_window.title("📊 바코드 히스토리")
+        history_window.geometry("1200x700")
+        history_window.resizable(True, True)
+        
+        # 중앙 정렬
+        history_window.transient(root)
+        history_window.grab_set()
+        
+        # 메인 프레임
+        main_frame = tk.Frame(history_window)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # 제목
+        title_label = tk.Label(main_frame, text="📊 바코드 히스토리", 
+                              font=("맑은 고딕", 16, "bold"))
+        title_label.pack(pady=10)
+        
+        # 통계 정보
+        stats_frame = tk.Frame(main_frame)
+        stats_frame.pack(pady=10)
+        
+        total_barcodes = len(df)
+        management_count = len(df[df['구분'] == '관리품'])
+        sample_count = len(df[df['구분'] == '샘플재고'])
+        
+        stats_text = f"총 바코드: {total_barcodes}개 | 관리품: {management_count}개 | 샘플재고: {sample_count}개"
+        stats_label = tk.Label(stats_frame, text=stats_text, 
+                              font=("맑은 고딕", 12), fg="#2196F3")
+        stats_label.pack()
+        
+        # 검색 프레임
+        search_frame = tk.Frame(main_frame)
+        search_frame.pack(pady=10)
+        
+        tk.Label(search_frame, text="검색:", font=("맑은 고딕", 12)).pack(side=tk.LEFT)
+        search_var = tk.StringVar()
+        search_entry = tk.Entry(search_frame, textvariable=search_var, 
+                               width=30, font=("맑은 고딕", 12))
+        search_entry.pack(side=tk.LEFT, padx=10)
+        search_entry.focus()
+        
+        # 검색 필드 선택
+        search_field_var = tk.StringVar(value="제품코드")
+        search_field_combo = ttk.Combobox(search_frame, textvariable=search_field_var, 
+                                        values=["생성된바코드숫자", "구분", "제품코드", "제품명", "LOT", "보관위치"], 
+                                        width=15, state="readonly")
+        search_field_combo.pack(side=tk.LEFT, padx=5)
+        
+        # 검색 버튼
+        search_btn = tk.Button(search_frame, text="🔍 검색", 
+                              command=lambda: perform_search(),
+                              bg="#2196F3", fg="white", font=("맑은 고딕", 10),
+                              relief=tk.FLAT, bd=0, padx=15, pady=5)
+        search_btn.pack(side=tk.LEFT, padx=5)
+        
+        # 초기화 버튼
+        reset_btn = tk.Button(search_frame, text="🔄 초기화", 
+                             command=lambda: reset_search(),
+                             bg="#9C27B0", fg="white", font=("맑은 고딕", 10),
+                             relief=tk.FLAT, bd=0, padx=15, pady=5)
+        reset_btn.pack(side=tk.LEFT, padx=5)
+        
+        # 내보내기 버튼
+        export_btn = tk.Button(search_frame, text="📥 엑셀 내보내기", 
+                              command=lambda: export_to_excel(),
+                              bg="#4CAF50", fg="white", font=("맑은 고딕", 10),
+                              relief=tk.FLAT, bd=0, padx=15, pady=5)
+        export_btn.pack(side=tk.LEFT, padx=5)
+        
+        # 트리뷰 프레임
+        tree_frame = tk.Frame(main_frame)
+        tree_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        # 스크롤바
+        tree_scroll = ttk.Scrollbar(tree_frame)
+        tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 트리뷰 생성
+        tree = ttk.Treeview(tree_frame, columns=("바코드", "구분", "제품코드", "제품명", "LOT", "유통기한", "폐기일자", "보관위치", "발행일시"), 
+                            show="headings", yscrollcommand=tree_scroll.set)
+        tree.pack(fill=tk.BOTH, expand=True)
+        tree_scroll.config(command=tree.yview)
+        
+        # 컬럼 설정
+        tree.heading("바코드", text="생성된 바코드")
+        tree.heading("구분", text="구분")
+        tree.heading("제품코드", text="제품코드")
+        tree.heading("제품명", text="제품명")
+        tree.heading("LOT", text="LOT")
+        tree.heading("유통기한", text="유통기한")
+        tree.heading("폐기일자", text="폐기일자")
+        tree.heading("보관위치", text="보관위치")
+        tree.heading("발행일시", text="발행일시")
+        
+        tree.column("바코드", width=100, minwidth=80)
+        tree.column("구분", width=80, minwidth=60)
+        tree.column("제품코드", width=100, minwidth=80)
+        tree.column("제품명", width=200, minwidth=150)
+        tree.column("LOT", width=100, minwidth=80)
+        tree.column("유통기한", width=100, minwidth=80)
+        tree.column("폐기일자", width=100, minwidth=80)
+        tree.column("보관위치", width=100, minwidth=80)
+        tree.column("발행일시", width=150, minwidth=120)
+        
+        # 데이터 로드 함수
+        def load_data_to_tree(data_df):
+            for item in tree.get_children():
+                tree.delete(item)
+            
+            for _, row in data_df.iterrows():
+                tree.insert("", "end", values=(
+                    row['생성된바코드숫자'],
+                    row['구분'],
+                    row['제품코드'],
+                    row['제품명'],
+                    row['LOT'],
+                    row['유통기한'],
+                    row['폐기일자'],
+                    row['보관위치'],
+                    row['발행일시']
+                ))
+        
+        # 초기 데이터 로드
+        load_data_to_tree(df)
+        
+        # 검색 함수
+        def perform_search():
+            search_term = search_var.get().strip()
+            search_field = search_field_var.get()
+            
+            if not search_term:
+                load_data_to_tree(df)
+                return
+            
+            # 검색 필드명 매핑
+            field_mapping = {
+                "생성된바코드숫자": "생성된바코드숫자",
+                "구분": "구분",
+                "제품코드": "제품코드",
+                "제품명": "제품명",
+                "LOT": "LOT",
+                "보관위치": "보관위치"
+            }
+            
+            field_name = field_mapping.get(search_field, "제품코드")
+            
+            # 검색 수행
+            filtered_df = df[df[field_name].astype(str).str.contains(search_term, case=False, na=False)]
+            load_data_to_tree(filtered_df)
+            
+            # 검색 결과 표시
+            result_count = len(filtered_df)
+            stats_label.config(text=f"검색 결과: {result_count}개 | 총 바코드: {total_barcodes}개")
+        
+        # 검색 초기화 함수
+        def reset_search():
+            search_var.set("")
+            load_data_to_tree(df)
+            stats_label.config(text=stats_text)
+        
+        # 엑셀 내보내기 함수
+        def export_to_excel():
+            try:
+                from tkinter import filedialog
+                filename = filedialog.asksaveasfilename(
+                    defaultextension=".xlsx",
+                    filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+                    title="바코드 히스토리 저장"
+                )
+                
+                if filename:
+                    df.to_excel(filename, index=False)
+                    messagebox.showinfo("내보내기 완료", f"바코드 히스토리가 {filename}에 저장되었습니다.")
+            except Exception as e:
+                messagebox.showerror("내보내기 오류", f"엑셀 파일 저장 중 오류가 발생했습니다: {e}")
+        
+        # Enter 키 바인딩
+        search_entry.bind('<Return>', lambda e: perform_search())
+        history_window.bind('<Escape>', lambda e: history_window.destroy())
+        
+    except Exception as e:
+        messagebox.showerror("오류", f"바코드 히스토리를 불러올 수 없습니다: {e}")  
 # 보관위치 검증 함수
 def validate_location(location):
     """
@@ -158,7 +452,7 @@ def update_barcode_status(status_text, color="#2196F3"):
         pass  # 창이 닫혀있거나 오류가 발생해도 무시
 
 # 발행 내역 저장 함수
-def save_issue_history(product_code, lot, expiry, location, filename, category):
+def save_issue_history(product_code, lot, expiry, version, location, filename, category, barcode_number=None):
     try:
         # 발행 내역 파일 경로
         history_file = os.path.join(os.path.dirname(__file__), "issue_history.xlsx")
@@ -173,9 +467,11 @@ def save_issue_history(product_code, lot, expiry, location, filename, category):
                 '제품명': [],
                 'LOT': [],
                 '유통기한': [],
+                '버전': [],
                 '폐기일자': [],
                 '보관위치': [],
-                '파일명': []
+                '파일명': [],
+                '바코드숫자': []
             })
             empty_df.to_excel(history_file, index=False)
         
@@ -201,13 +497,16 @@ def save_issue_history(product_code, lot, expiry, location, filename, category):
         except FileNotFoundError:
             df_history = pd.DataFrame({
                 '발행일시': [],
+                '구분': [],
                 '제품코드': [],
                 '제품명': [],
                 'LOT': [],
                 '유통기한': [],
+                '버전': [],
                 '폐기일자': [],
                 '보관위치': [],
-                '파일명': []
+                '파일명': [],
+                '바코드숫자': []
             })
         
         # 새 발행 내역 추가
@@ -219,13 +518,20 @@ def save_issue_history(product_code, lot, expiry, location, filename, category):
             '제품명': product_name,
             'LOT': lot,
             '유통기한': expiry,
+            '버전': version,
             '폐기일자': disposal_date_str,
             '보관위치': location,
-            '파일명': filename
+            '파일명': filename,
+            '바코드숫자': barcode_number if barcode_number else "N/A"
         }
         
         df_history = pd.concat([df_history, pd.DataFrame([new_row])], ignore_index=True)
         df_history.to_excel(history_file, index=False)
+        
+        # 바코드 히스토리 CSV 파일에도 저장
+        if barcode_number and barcode_number != "N/A":
+            product_name = products.get(product_code, "알 수 없는 제품")
+            save_barcode_to_history(barcode_number, category, product_code, product_name, lot, expiry, location)
         
         print(f"발행 내역이 {history_file}에 저장되었습니다.")
         
@@ -233,7 +539,7 @@ def save_issue_history(product_code, lot, expiry, location, filename, category):
         print(f"발행 내역 저장 중 오류: {e}")
 
 # 미리보기 함수
-def show_preview(label_image, filename, product_code, lot, expiry, location, category):
+def show_preview(label_image, filename, product_code, lot, expiry, version, location, category):
     try:
         print(f"미리보기 창 생성 시작: {filename}")
         # 미리보기 창 생성
@@ -254,6 +560,7 @@ def show_preview(label_image, filename, product_code, lot, expiry, location, cat
         tk.Label(info_frame, text=f"제품코드: {product_code}", font=("맑은 고딕", 10)).pack()
         tk.Label(info_frame, text=f"LOT: {lot}", font=("맑은 고딕", 10)).pack()
         tk.Label(info_frame, text=f"유통기한: {expiry}", font=("맑은 고딕", 10)).pack()
+        tk.Label(info_frame, text=f"버전: {version}", font=("맑은 고딕", 10)).pack()
         tk.Label(info_frame, text=f"보관위치: {location}", font=("맑은 고딕", 10)).pack()
         tk.Label(info_frame, text=f"파일명: {filename}", font=("맑은 고딕", 10)).pack()
         
@@ -335,12 +642,12 @@ def show_preview(label_image, filename, product_code, lot, expiry, location, cat
         traceback.print_exc()
         messagebox.showerror("미리보기 오류", f"미리보기 창을 생성할 수 없습니다:\n{e}")
 
-def create_label(product_code, lot, expiry, location, category):
+def create_label(product_code, lot, expiry, version, location, category):
     # 제품명 조회
     product_name = products.get(product_code, "알 수 없는 제품")
 
     # 일련번호 생성 및 라벨 정보 저장
-    serial_number = save_label_info(product_code, lot, expiry, location, category)
+    serial_number = save_label_info(product_code, lot, expiry, version, location, category)
     
     # 바코드 데이터는 일련번호만 사용
     barcode_data = str(serial_number)
@@ -425,9 +732,13 @@ def create_label(product_code, lot, expiry, location, category):
             draw.text((20 + prefix_width, y_pos), line, fill="black", font=font_product)
         y_pos += 32  # 줄 간격 조정 (8 * 4)
     
-    # LOT과 유통기한을 같은 줄에 배치
-    lot_expiry_text = f"LOT: {lot}    유통기한: {expiry}"
-    draw.text((20, y_pos), lot_expiry_text, fill="black", font=font_info)
+    # 구분 정보 추가 (제품명과 동일한 폰트 크기)
+    draw.text((20, y_pos), f"구분: {category}", fill="black", font=font_product)
+    y_pos += 32  # 줄 간격 조정 (8 * 4)
+    
+    # LOT, 유통기한, 버전을 같은 줄에 배치
+    lot_expiry_version_text = f"LOT: {lot}    유통기한: {expiry}    버전: {version}"
+    draw.text((20, y_pos), lot_expiry_version_text, fill="black", font=font_info)
     
     # 보관위치는 LOT 행 아래에 배치 (간격 조정)
     draw.text((20, y_pos + 30), f"보관위치: {location}", fill="black", font=font_info)
@@ -438,26 +749,30 @@ def create_label(product_code, lot, expiry, location, category):
         barcode_class = barcode.get_barcode_class('code128')
         barcode_image = barcode_class(barcode_data, writer=ImageWriter())
         
-        # 바코드 이미지 생성
-        barcode_img = barcode_image.render()
+        # 바코드 이미지 생성 (텍스트 없이)
+        barcode_img = barcode_image.render({'write_text': False})
         
-        # 바코드 크기 조정 (4배 확대된 해상도에 맞춰 조정, 높이 증가로 인식성 향상)
+        # 바코드 크기 조정 (4배 확대된 해상도에 맞춰 조정, 높이 감소로 텍스트 공간 확보)
         barcode_width = LABEL_WIDTH - 40  # 좌우 여백 조정 (약 10 * 4)
-        barcode_height = 200  # 바코드 높이 조정 (더 큰 바코드로 인식성 향상)
+        barcode_height = 150  # 바코드 높이 조정 (텍스트 공간 확보를 위해 높이 감소)
         
         # 바코드 이미지 리사이즈
         barcode_img = barcode_img.resize((barcode_width, barcode_height), Image.Resampling.LANCZOS)
         
-        # 바코드를 더 아래쪽에 배치 (보관위치 텍스트가 보이도록)
+        # 바코드를 더 위쪽에 배치 (보관위치 텍스트와의 간격 줄임)
         barcode_x = 5  # 좌측 여백 조정 (약 1.25 * 4)
-        barcode_y = LABEL_HEIGHT - barcode_height - 10  # 하단 여백 조정 (약 2.5 * 4)
+        barcode_y = LABEL_HEIGHT - barcode_height - 100  # 하단 여백 조정 (간격 줄임)
         
         # 바코드 이미지를 라벨에 붙이기
         label.paste(barcode_img, (barcode_x, barcode_y))
         
-        # 바코드 아래 텍스트 (제품코드-LOT-유통기한 형식)
-        barcode_text = f"{product_code}-{lot}-{expiry}"
-        draw.text((20, LABEL_HEIGHT - 80), barcode_text, fill="black", font=font_small)
+        # 바코드 아래 텍스트 (제품코드-LOT-유통기한-버전 형식) - 가운데 정렬
+        barcode_text = f"{product_code}-{lot}-{expiry}-{version}"
+        # 텍스트 너비 계산하여 가운데 정렬
+        text_bbox = draw.textbbox((0, 0), barcode_text, font=font_small)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_x = (LABEL_WIDTH - text_width) // 2  # 가운데 정렬
+        draw.text((text_x, LABEL_HEIGHT - 50), barcode_text, fill="black", font=font_small)
         
     except Exception as e:
         print(f"바코드 생성 실패: {e}")
@@ -465,19 +780,22 @@ def create_label(product_code, lot, expiry, location, category):
         try:
             barcode_class = barcode.get_barcode_class('code39')
             barcode_image = barcode_class(barcode_data, writer=ImageWriter())
-            barcode_img = barcode_image.render()
-            barcode_img = barcode_img.resize((LABEL_WIDTH - 40, 200), Image.Resampling.LANCZOS)
-            label.paste(barcode_img, (5, LABEL_HEIGHT - 200 - 10))
+            barcode_img = barcode_image.render({'write_text': False})
+            barcode_img = barcode_img.resize((LABEL_WIDTH - 40, 120), Image.Resampling.LANCZOS)
+            label.paste(barcode_img, (5, LABEL_HEIGHT - 120 - 10))
         except Exception as e2:
             print(f"Code39 바코드 생성도 실패: {e2}")
             # 바코드 생성 실패 시 텍스트만 표시
             draw.text((20, LABEL_HEIGHT - 80), f"바코드: {barcode_data}", fill="black", font=font_small)
-            # 제품 정보 텍스트도 표시
-            barcode_text = f"{product_code}-{lot}-{expiry}"
-            draw.text((20, LABEL_HEIGHT - 60), barcode_text, fill="black", font=font_small)
+            # 제품 정보 텍스트도 표시 (가운데 정렬)
+            barcode_text = f"{product_code}-{lot}-{expiry}-{version}"
+            text_bbox = draw.textbbox((0, 0), barcode_text, font=font_small)
+            text_width = text_bbox[2] - text_bbox[0]
+            text_x = (LABEL_WIDTH - text_width) // 2  # 가운데 정렬
+            draw.text((text_x, LABEL_HEIGHT - 50), barcode_text, fill="black", font=font_small)
 
     # labeljpg 폴더 생성 및 확인
-    labeljpg_dir = "labeljpg"
+    labeljpg_dir = os.path.join(SCRIPT_DIR, "labeljpg")
     if not os.path.exists(labeljpg_dir):
         os.makedirs(labeljpg_dir)
     
@@ -487,8 +805,8 @@ def create_label(product_code, lot, expiry, location, category):
     # 파일 저장
     label.save(filename)
     
-    # 발행 내역 저장
-    save_issue_history(product_code, lot, expiry, location, filename, category)
+    # 발행 내역 저장 (바코드 숫자 포함)
+    save_issue_history(product_code, lot, expiry, version, location, filename, category, serial_number)
     
     return label, filename
 
@@ -520,12 +838,12 @@ def image_to_zpl(image_path, label_width=240, label_height=160):
         print(f"이미지 ZPL 변환 오류: {e}")
         return None
 
-def create_zpl_label(product_code, lot, expiry, location, category):
+def create_zpl_label(product_code, lot, expiry, version, location, category):
     # 제품명 조회
     product_name = products.get(product_code, "Unknown Product")
     
     # 일련번호 생성 및 라벨 정보 저장
-    serial_number = save_label_info(product_code, lot, expiry, location, category)
+    serial_number = save_label_info(product_code, lot, expiry, version, location, category)
     
     # 바코드 데이터는 일련번호만 사용
     barcode_data = str(serial_number)
@@ -535,17 +853,18 @@ def create_zpl_label(product_code, lot, expiry, location, category):
 ^PW640
 ^LL480
 ^FO25,25^A0N,24,24^FDProduct: {product_name}^FS
-^FO25,90^A0N,24,24^FDLOT: {lot}    Expiry: {expiry}^FS
-^FO25,200^A0N,24,24^FDLocation: {location}^FS
-^FO5,240^BY40^B2N,1200,Y,N,N^FD{barcode_data}^FS
-^FO25,440^A0N,20,20^FD{product_code}-{lot}-{expiry}^FS
+^FO25,60^A0N,24,24^FDCategory: {category}^FS
+^FO25,95^A0N,24,24^FDLOT: {lot}    Expiry: {expiry}    Version: {version}^FS
+^FO25,130^A0N,24,24^FDLocation: {location}^FS
+^FO5,200^BY40^B2N,1200,Y,N,N^FD{barcode_data}^FS
+^FO25,440^A0N,20,20^FD{product_code}-{lot}-{expiry}-{version}^FS
 ^XZ"""
     return zpl_code
 
-def save_zpl_file(zpl_code, product_code, lot, expiry, location):
+def save_zpl_file(zpl_code, product_code, lot, expiry, version, location):
     """ZPL 코드를 파일로 저장"""
     # zpl 폴더 생성
-    zpl_dir = "zpl"
+    zpl_dir = os.path.join(SCRIPT_DIR, "zpl")
     if not os.path.exists(zpl_dir):
         os.makedirs(zpl_dir)
     
@@ -561,18 +880,22 @@ def update_category_ui():
     category = category_var.get()
     
     if category == "관리품":
-        # 관리품일 때 LOT과 유통기한 표시
+        # 관리품일 때 LOT, 유통기한, 버전 표시
         lot_label.pack(pady=5)
         entry_lot.pack(pady=5)
         expiry_label.pack(pady=5)
         expiry_frame.pack(pady=5)
         entry_expiry.pack(side=tk.LEFT, padx=(0, 10))
+        version_label.pack(pady=5)
+        entry_version.pack(pady=5)
         
         # 관리품으로 전환 시 기본값 설정
         entry_lot.delete(0, tk.END)
         entry_lot.insert(0, "")
         entry_expiry.delete(0, tk.END)
         entry_expiry.insert(0, "")
+        entry_version.delete(0, tk.END)
+        entry_version.insert(0, "")
         
         # 제품코드 초기화
         combo_code.set("")
@@ -581,19 +904,73 @@ def update_category_ui():
         # 포커스를 제품코드 입력창으로 이동
         combo_code.focus()
         
-    else:
-        # 샘플재고일 때 LOT과 유통기한 숨김
+    elif category == "표준품":
+        # 표준품일 때 LOT, 유통기한, 버전 표시
+        lot_label.pack(pady=5)
+        entry_lot.pack(pady=5)
+        expiry_label.pack(pady=5)
+        expiry_frame.pack(pady=5)
+        entry_expiry.pack(side=tk.LEFT, padx=(0, 10))
+        version_label.pack(pady=5)
+        entry_version.pack(pady=5)
+        
+        # 표준품으로 전환 시 기본값 설정
+        entry_lot.delete(0, tk.END)
+        entry_lot.insert(0, "")
+        entry_expiry.delete(0, tk.END)
+        entry_expiry.insert(0, "")
+        entry_version.delete(0, tk.END)
+        entry_version.insert(0, "")
+        
+        # 제품코드 초기화
+        combo_code.set("")
+        label_product_name.config(text="제품명: ")
+        
+        # 포커스를 제품코드 입력창으로 이동
+        combo_code.focus()
+        
+    elif category == "벌크표준":
+        # 벌크표준일 때 LOT, 유통기한, 버전 표시
+        lot_label.pack(pady=5)
+        entry_lot.pack(pady=5)
+        expiry_label.pack(pady=5)
+        expiry_frame.pack(pady=5)
+        entry_expiry.pack(side=tk.LEFT, padx=(0, 10))
+        version_label.pack(pady=5)
+        entry_version.pack(pady=5)
+        
+        # 벌크표준으로 전환 시 기본값 설정
+        entry_lot.delete(0, tk.END)
+        entry_lot.insert(0, "")
+        entry_expiry.delete(0, tk.END)
+        entry_expiry.insert(0, "")
+        entry_version.delete(0, tk.END)
+        entry_version.insert(0, "")
+        
+        # 제품코드 초기화
+        combo_code.set("")
+        label_product_name.config(text="제품명: ")
+        
+        # 포커스를 제품코드 입력창으로 이동
+        combo_code.focus()
+        
+    else:  # 샘플재고
+        # 샘플재고일 때 LOT, 유통기한, 버전 숨김
         lot_label.pack_forget()
         entry_lot.pack_forget()
         expiry_label.pack_forget()
         expiry_frame.pack_forget()
         entry_expiry.pack_forget()
+        version_label.pack_forget()
+        entry_version.pack_forget()
         
         # 샘플재고로 전환 시 기본값 설정
         entry_lot.delete(0, tk.END)
         entry_lot.insert(0, "SAMPLE")
         entry_expiry.delete(0, tk.END)
         entry_expiry.insert(0, "N/A")
+        entry_version.delete(0, tk.END)
+        entry_version.insert(0, "N/A")
         
         # 제품코드 초기화
         combo_code.set("")
@@ -663,19 +1040,21 @@ def on_submit():
             messagebox.showwarning("경고", "제품코드와 보관위치를 입력하세요.")
             return
         
-        # 관리품일 때만 LOT과 유통기한 검증
-        if category == "관리품":
+        # 관리품, 표준품, 벌크표준일 때 LOT, 유통기한, 버전 검증
+        if category in ["관리품", "표준품", "벌크표준"]:
             lot = entry_lot.get()
             expiry = entry_expiry.get()
-            if not lot or not expiry:
-                messagebox.showwarning("경고", "관리품은 LOT과 유통기한을 모두 입력하세요.")
+            version = entry_version.get()
+            if not lot or not expiry or not version:
+                messagebox.showwarning("경고", f"{category}은 LOT, 유통기한, 버전을 모두 입력하세요.")
                 return
         else:
             # 샘플재고일 때는 기본값 설정
             lot = "SAMPLE"
             expiry = "N/A"
+            version = "N/A"
         
-        print(f"검증된 데이터: LOT={lot}, 유통기한={expiry}")
+        print(f"검증된 데이터: LOT={lot}, 유통기한={expiry}, 버전={version}")
             
         # 보관위치 형식 검증
         is_valid, error_message = validate_location(location)
@@ -686,17 +1065,17 @@ def on_submit():
         
         print("라벨 생성 함수 호출...")
         # 라벨 생성
-        label_image, filename = create_label(product_code, lot, expiry, location, category)
+        label_image, filename = create_label(product_code, lot, expiry, version, location, category)
         print(f"라벨 생성 완료: {filename}")
         
         # ZPL 코드 생성
-        zpl_code = create_zpl_label(product_code, lot, expiry, location, category)
-        zpl_filename = save_zpl_file(zpl_code, product_code, lot, expiry, location)
+        zpl_code = create_zpl_label(product_code, lot, expiry, version, location, category)
+        zpl_filename = save_zpl_file(zpl_code, product_code, lot, expiry, version, location)
         print(f"ZPL 파일 생성 완료: {zpl_filename}")
         
         print("미리보기 창 표시...")
         # 미리보기 창 표시
-        show_preview(label_image, filename, product_code, lot, expiry, location, category)
+        show_preview(label_image, filename, product_code, lot, expiry, version, location, category)
         print("미리보기 창 표시 완료")
 
         # 발행 완료 메시지
@@ -712,7 +1091,7 @@ def on_submit():
 # ✅ Tkinter GUI 생성
 root = tk.Tk()
 root.title("바코드 라벨 관리 시스템 - 라벨 발행")
-root.geometry("600x500")
+root.geometry("700x600")
 
 # 명령행 인수 처리
 parser = argparse.ArgumentParser(description='라벨 발행 GUI')
@@ -733,14 +1112,26 @@ category_var = tk.StringVar(value="관리품")
 category_frame = tk.Frame(root)
 category_frame.pack(pady=5)
 
-# 라디오 버튼으로 구분 선택
+# 라디오 버튼을 2x2 그리드로 배치
+category_frame.grid_columnconfigure(0, weight=1)
+category_frame.grid_columnconfigure(1, weight=1)
+
+# 라디오 버튼으로 구분 선택 (2x2 그리드 배치)
 management_radio = tk.Radiobutton(category_frame, text="관리품", variable=category_var, value="관리품",
                                   font=("맑은 고딕", 10), command=lambda: refresh_ui_for_management())
-management_radio.pack(side=tk.LEFT, padx=10)
+management_radio.grid(row=0, column=0, padx=10, pady=5, sticky="ew")
+
+standard_radio = tk.Radiobutton(category_frame, text="표준품", variable=category_var, value="표준품",
+                                font=("맑은 고딕", 10), command=lambda: refresh_ui_for_standard())
+standard_radio.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
+
+bulk_radio = tk.Radiobutton(category_frame, text="벌크표준", variable=category_var, value="벌크표준",
+                            font=("맑은 고딕", 10), command=lambda: refresh_ui_for_bulk())
+bulk_radio.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
 
 sample_radio = tk.Radiobutton(category_frame, text="샘플재고", variable=category_var, value="샘플재고",
                               font=("맑은 고딕", 10), command=lambda: refresh_ui_for_sample())
-sample_radio.pack(side=tk.LEFT, padx=10)
+sample_radio.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
 
 def refresh_ui_for_management():
     """관리품 선택 시 UI 새로고침"""
@@ -752,6 +1143,35 @@ def refresh_ui_for_management():
                        "• 제품코드\n"
                        "• LOT 번호\n"
                        "• 유통기한\n"
+                       "• 버전\n"
+                       "• 보관위치\n\n"
+                       "모든 필드를 입력한 후 라벨을 생성하세요.")
+
+def refresh_ui_for_standard():
+    """표준품 선택 시 UI 새로고침"""
+    update_category_ui()
+    # 표준품 관련 안내 메시지
+    messagebox.showinfo("표준품 모드", 
+                       "✅ 표준품 모드로 전환되었습니다.\n\n"
+                       "📋 표준품은 다음 정보가 필요합니다:\n"
+                       "• 제품코드\n"
+                       "• LOT 번호\n"
+                       "• 유통기한\n"
+                       "• 버전\n"
+                       "• 보관위치\n\n"
+                       "모든 필드를 입력한 후 라벨을 생성하세요.")
+
+def refresh_ui_for_bulk():
+    """벌크표준 선택 시 UI 새로고침"""
+    update_category_ui()
+    # 벌크표준 관련 안내 메시지
+    messagebox.showinfo("벌크표준 모드", 
+                       "✅ 벌크표준 모드로 전환되었습니다.\n\n"
+                       "📋 벌크표준은 다음 정보가 필요합니다:\n"
+                       "• 제품코드\n"
+                       "• LOT 번호\n"
+                       "• 유통기한\n"
+                       "• 버전\n"
                        "• 보관위치\n\n"
                        "모든 필드를 입력한 후 라벨을 생성하세요.")
 
@@ -819,12 +1239,27 @@ def on_location_change(*args):
     if location:
         # 바코드 처리
         if process_barcode_scan_for_field(location, "location"):
-            # 성공 시 LOT 필드로 자동 이동 (관리품인 경우)
-            if category_var.get() == "관리품":
+            # 성공 시 LOT 필드로 자동 이동 (관리품, 표준품, 벌크표준인 경우)
+            if category_var.get() in ["관리품", "표준품", "벌크표준"]:
                 entry_lot.focus()
             else:
                 # 샘플재고인 경우 바로 라벨 생성
                 on_submit()
+
+# LOT 바코드 리딩 기능 (자동 다음 필드 이동 제거)
+def on_lot_change(*args):
+    """LOT 변경 시 자동 이동 제거 - 수동으로 다음 필드로 이동해야 함"""
+    pass
+
+# 유통기한 바코드 리딩 기능 (자동 다음 필드 이동 제거)
+def on_expiry_change(*args):
+    """유통기한 변경 시 자동 이동 제거 - 수동으로 다음 필드로 이동해야 함"""
+    pass
+
+# 버전 바코드 리딩 기능 (자동 라벨 생성 제거)
+def on_version_change(*args):
+    """버전 변경 시 자동 라벨 생성 제거 - 수동으로 제출해야 함"""
+    pass
 
 location_combo.bind('<<ComboboxSelected>>', on_location_change)
 location_combo.bind('<KeyRelease>', on_location_change)
@@ -857,9 +1292,14 @@ help_label.pack(pady=2)
 lot_label = tk.Label(root, text="LOT 번호:")
 entry_lot = tk.Entry(root, width=30)
 
-# LOT 번호 (관리품일 때만 표시) - 보관위치 다음으로 이동
-lot_label = tk.Label(root, text="LOT 번호:")
-entry_lot = tk.Entry(root, width=30)
+# LOT 바코드 리딩 기능 (Enter 키 자동 이동 유지)
+def on_lot_enter(event):
+    """LOT 입력 후 Enter 키로 유통기한 필드로 이동"""
+    if event.char == '\r':  # Enter 키
+        entry_expiry.focus()
+
+entry_lot.bind('<Return>', on_lot_enter)
+entry_lot.bind('<KeyRelease>', on_lot_change)
 
 # 유통기한 (수기입력 + 달력) - 관리품일 때만 표시 - LOT 다음으로 이동
 global expiry_label, expiry_frame, entry_expiry
@@ -867,13 +1307,28 @@ expiry_label = tk.Label(root, text="유통기한:")
 expiry_frame = tk.Frame(root)
 entry_expiry = tk.Entry(expiry_frame, width=20)
 
-# 유통기한 입력 시 Enter 키로만 라벨 생성
+# 버전 (관리품일 때만 표시) - 유통기한 다음으로 이동
+global version_label, entry_version
+version_label = tk.Label(root, text="버전:")
+entry_version = tk.Entry(root, width=30)
+
+# 유통기한 입력 시 Enter 키로 버전 필드로 이동
 def on_expiry_enter(event):
-    """유통기한 입력 후 Enter 키로 라벨 생성"""
+    """유통기한 입력 후 Enter 키로 버전 필드로 이동"""
+    if event.char == '\r':  # Enter 키
+        entry_version.focus()
+
+entry_expiry.bind('<Return>', on_expiry_enter)
+entry_expiry.bind('<KeyRelease>', on_expiry_change)
+
+# 버전 입력 시 Enter 키로 라벨 생성
+def on_version_enter(event):
+    """버전 입력 후 Enter 키로 라벨 생성"""
     if event.char == '\r':  # Enter 키
         on_submit()
 
-entry_expiry.bind('<Return>', on_expiry_enter)
+entry_version.bind('<Return>', on_version_enter)
+entry_version.bind('<KeyRelease>', on_version_change)
 
 # 달력 버튼
 def show_calendar():
@@ -923,11 +1378,19 @@ def process_barcode_scan_for_field(barcode_data, field_type):
     barcode_data = barcode_data.strip()
     
     # 모드 전환 바코드 처리
-    if barcode_data.lower() in ["관리품", "sample", "샘플재고"]:
+    if barcode_data.lower() in ["관리품", "표준품", "벌크표준", "sample", "샘플재고"]:
         if barcode_data.lower() == "관리품":
             category_var.set("관리품")
             refresh_ui_for_management()
-            messagebox.showinfo("모드 전환", "관리품 모드로 전환되었습니다.\n제품코드, 보관위치, LOT, 유통기한을 입력하세요.")
+            messagebox.showinfo("모드 전환", "관리품 모드로 전환되었습니다.\n제품코드, 보관위치, LOT, 유통기한, 버전을 입력하세요.")
+        elif barcode_data.lower() == "표준품":
+            category_var.set("표준품")
+            refresh_ui_for_standard()
+            messagebox.showinfo("모드 전환", "표준품 모드로 전환되었습니다.\n제품코드, 보관위치, LOT, 유통기한, 버전을 입력하세요.")
+        elif barcode_data.lower() == "벌크표준":
+            category_var.set("벌크표준")
+            refresh_ui_for_bulk()
+            messagebox.showinfo("모드 전환", "벌크표준 모드로 전환되었습니다.\n제품코드, 보관위치, LOT, 유통기한, 버전을 입력하세요.")
         else:
             category_var.set("샘플재고")
             refresh_ui_for_sample()
@@ -978,14 +1441,15 @@ messagebox.showinfo("바코드 리딩 기능",
                    "💡 사용법:\n"
                    "• 제품코드와 보관위치만 바코드 스캔 가능\n"
                    "• 제품코드와 보관위치는 자동으로 다음 필드로 이동\n"
-                   "• LOT과 유통기한은 수동 입력 후 Enter 키로 진행\n"
-                   "• '관리품' 또는 '샘플재고' 바코드로 모드 전환 가능\n"
+                   "• LOT, 유통기한, 버전은 수동 입력 후 Enter 키로 진행\n"
+                   "• '관리품', '표준품', '벌크표준', '샘플재고' 바코드로 모드 전환 가능\n"
                    "• Ctrl+B 단축키로 제품코드 필드로 바로 이동\n\n"
                    "📋 입력 순서:\n"
                    "1. 제품코드 (바코드 스캔 또는 직접 입력) → 자동 이동\n"
                    "2. 보관위치 (바코드 스캔 또는 직접 입력) → 자동 이동\n"
-                   "3. LOT 번호 (관리품만, 수동 입력) → 수동 진행\n"
-                   "4. 유통기한 (관리품만, 수동 입력) → Enter 키로 라벨 생성")
+                   "3. LOT 번호 (관리품/표준품/벌크표준만, 수동 입력) → Enter 키로 이동\n"
+                   "4. 유통기한 (관리품/표준품/벌크표준만, 수동 입력) → Enter 키로 이동\n"
+                   "5. 버전 (관리품/표준품/벌크표준만, 수동 입력) → Enter 키로 라벨 생성")
 
 # 발행 내역 조회 함수 (검색 및 필터링 기능 포함)
 def open_dashboard():
@@ -1051,7 +1515,7 @@ def view_history():
             # 검색 필드 선택
             search_field_var = tk.StringVar(value="제품코드")
             search_field_combo = ttk.Combobox(search_frame, textvariable=search_field_var, 
-                                            values=["구분", "제품코드", "제품명", "LOT", "유통기한", "보관위치"], 
+                                            values=["구분", "제품코드", "제품명", "LOT", "유통기한", "보관위치", "바코드숫자"], 
                                             width=10, state="readonly")
             search_field_combo.pack(side=tk.LEFT, padx=5)
             
@@ -1092,7 +1556,7 @@ def view_history():
             
             sort_field_var = tk.StringVar(value="발행일시")
             sort_field_combo = ttk.Combobox(sort_frame, textvariable=sort_field_var, 
-                                          values=["발행일시", "구분", "제품코드", "제품명", "LOT", "유통기한", "보관위치"], 
+                                          values=["발행일시", "구분", "제품코드", "제품명", "LOT", "유통기한", "보관위치", "바코드숫자"], 
                                           width=10, state="readonly")
             sort_field_combo.pack(side=tk.LEFT, padx=5)
             
@@ -1228,8 +1692,10 @@ def view_history():
                 '제품명': 200,
                 'LOT': 100,
                 '유통기한': 120,
+                '폐기일자': 120,
                 '보관위치': 100,
-                '파일명': 200
+                '파일명': 200,
+                '바코드숫자': 100
             }
             
             for col in df_history.columns:
@@ -1261,25 +1727,26 @@ def view_history():
                 product_code = item_values[1]  # 제품코드
                 lot = item_values[3]           # LOT
                 expiry = item_values[4]        # 유통기한
-                location = item_values[5]      # 보관위치
-                filename = item_values[6]      # 파일명
+                location = item_values[6]      # 보관위치 (폐기일자 컬럼 추가로 인덱스 변경)
+                filename = item_values[7]      # 파일명
+                barcode_number = item_values[8] if len(item_values) > 8 else "N/A"  # 바코드 숫자
                 
                 # 파일 존재 확인 (labeljpg 폴더 내에서 확인)
-                labeljpg_dir = "labeljpg"
+                labeljpg_dir = os.path.join(SCRIPT_DIR, "labeljpg")
                 file_path = os.path.join(labeljpg_dir, filename)
                 
                 if os.path.exists(file_path):
                     try:
                         # 파일을 다시 생성하여 새로운 UI 적용
                         create_label(product_code, lot, expiry, location, category)
-                        messagebox.showinfo("재발행 완료", f"라벨을 새로 생성했습니다.\n\n구분: {category}\n제품: {product_code}\nLOT: {lot}\n유통기한: {expiry}\n보관위치: {location}\n\n미리보기 창에서 확인 후 인쇄하세요.")
+                        messagebox.showinfo("재발행 완료", f"라벨을 새로 생성했습니다.\n\n구분: {category}\n제품: {product_code}\nLOT: {lot}\n유통기한: {expiry}\n보관위치: {location}\n바코드: {barcode_number}\n\n미리보기 창에서 확인 후 인쇄하세요.")
                     except Exception as e:
                         messagebox.showerror("재발행 오류", f"라벨 생성 실패: {e}")
                 else:
                     # 파일이 없으면 새로 생성
                     try:
                         create_label(product_code, lot, expiry, location, category)
-                        messagebox.showinfo("재발행 완료", f"라벨을 새로 생성했습니다.\n\n구분: {category}\n제품: {product_code}\nLOT: {lot}\n유통기한: {expiry}\n보관위치: {location}\n\n미리보기 창에서 확인 후 인쇄하세요.")
+                        messagebox.showinfo("재발행 완료", f"라벨을 새로 생성했습니다.\n\n구분: {category}\n제품: {product_code}\nLOT: {lot}\n유통기한: {expiry}\n보관위치: {location}\n바코드: {barcode_number}\n\n미리보기 창에서 확인 후 인쇄하세요.")
                     except Exception as e:
                         messagebox.showerror("재발행 오류", f"라벨 생성 실패: {e}")
             
@@ -1301,8 +1768,9 @@ def view_history():
                         'product_name': item_values[2],
                         'lot': item_values[3],
                         'expiry': item_values[4],
-                        'location': item_values[5],
-                        'filename': item_values[6]
+                        'location': item_values[6],  # 폐기일자 컬럼 추가로 인덱스 변경
+                        'filename': item_values[7],
+                        'barcode_number': item_values[8] if len(item_values) > 8 else "N/A"
                     })
                 
                 # 삭제 확인 메시지 (다중 선택 시)
@@ -1342,7 +1810,7 @@ def view_history():
                         tree.delete(data['item_id'])
                         
                         # 파일도 삭제 (선택사항) - labeljpg 폴더 내에서 확인
-                        labeljpg_dir = "labeljpg"
+                        labeljpg_dir = os.path.join(SCRIPT_DIR, "labeljpg")
                         file_path = os.path.join(labeljpg_dir, data['filename'])
                         if os.path.exists(file_path):
                             try:
@@ -1452,6 +1920,8 @@ tk.Button(button_frame2, text="🧐 관리품 위치 찾기", command=open_locat
           bg="#4CAF50", fg="white", font=("맑은 고딕", 10, "bold")).pack(side=tk.LEFT, padx=5)
 tk.Button(button_frame2, text="📋 발행 내역", command=view_history, 
           bg="#9C27B0", fg="white", font=("맑은 고딕", 10, "bold")).pack(side=tk.LEFT, padx=5)
+tk.Button(button_frame2, text="📊 바코드 히스토리", command=view_barcode_history, 
+          bg="#FF5722", fg="white", font=("맑은 고딕", 10, "bold")).pack(side=tk.LEFT, padx=5)
 tk.Button(button_frame2, text="⚙️ 구역 관리", command=open_zone_manager, 
           bg="#607D8B", fg="white", font=("맑은 고딕", 10, "bold")).pack(side=tk.LEFT, padx=5)
 
@@ -1461,18 +1931,34 @@ def init_serial_database():
     conn = sqlite3.connect('label_serial.db')
     cursor = conn.cursor()
     
-    # 라벨 정보 테이블 생성
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS label_info (
-            serial_number INTEGER PRIMARY KEY AUTOINCREMENT,
-            product_code TEXT NOT NULL,
-            lot TEXT NOT NULL,
-            expiry TEXT NOT NULL,
-            location TEXT NOT NULL,
-            category TEXT NOT NULL,
-            created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
+    # 기존 테이블이 있는지 확인
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='label_info'")
+    table_exists = cursor.fetchone() is not None
+    
+    if table_exists:
+        # 기존 테이블에 버전 컬럼이 있는지 확인
+        cursor.execute("PRAGMA table_info(label_info)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
+        if 'version' not in columns:
+            # 버전 컬럼 추가
+            cursor.execute('ALTER TABLE label_info ADD COLUMN version TEXT DEFAULT "N/A"')
+            print("기존 데이터베이스에 버전 컬럼을 추가했습니다.")
+    else:
+        # 새 테이블 생성
+        cursor.execute('''
+            CREATE TABLE label_info (
+                serial_number INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_code TEXT NOT NULL,
+                lot TEXT NOT NULL,
+                expiry TEXT NOT NULL,
+                version TEXT NOT NULL,
+                location TEXT NOT NULL,
+                category TEXT NOT NULL,
+                created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        print("새 라벨 정보 테이블을 생성했습니다.")
     
     conn.commit()
     conn.close()
@@ -1492,15 +1978,28 @@ def get_next_serial_number():
     else:
         return result[0] + 1
 
-def save_label_info(product_code, lot, expiry, location, category):
+def save_label_info(product_code, lot, expiry, version, location, category):
     """라벨 정보 저장 및 일련번호 반환"""
-    conn = sqlite3.connect('label_serial.db')
+    db_path = os.path.join(SCRIPT_DIR, 'label_serial.db')
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    cursor.execute('''
-        INSERT INTO label_info (product_code, lot, expiry, location, category)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (product_code, lot, expiry, location, category))
+    # 테이블 구조 확인
+    cursor.execute("PRAGMA table_info(label_info)")
+    columns = [column[1] for column in cursor.fetchall()]
+    
+    if 'version' in columns:
+        # 버전 컬럼이 있는 경우
+        cursor.execute('''
+            INSERT INTO label_info (product_code, lot, expiry, version, location, category)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (product_code, lot, expiry, version, location, category))
+    else:
+        # 버전 컬럼이 없는 경우 (기존 데이터베이스)
+        cursor.execute('''
+            INSERT INTO label_info (product_code, lot, expiry, location, category)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (product_code, lot, expiry, location, category))
     
     serial_number = cursor.lastrowid
     conn.commit()
@@ -1510,27 +2009,54 @@ def save_label_info(product_code, lot, expiry, location, category):
 
 def get_label_info_by_serial(serial_number):
     """일련번호로 라벨 정보 조회"""
-    conn = sqlite3.connect('label_serial.db')
+    db_path = os.path.join(SCRIPT_DIR, 'label_serial.db')
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    cursor.execute('''
-        SELECT product_code, lot, expiry, location, category
-        FROM label_info WHERE serial_number = ?
-    ''', (serial_number,))
+    # 테이블 구조 확인
+    cursor.execute("PRAGMA table_info(label_info)")
+    columns = [column[1] for column in cursor.fetchall()]
     
-    result = cursor.fetchone()
-    conn.close()
-    
-    if result:
-        return {
-            'product_code': result[0],
-            'lot': result[1],
-            'expiry': result[2],
-            'location': result[3],
-            'category': result[4]
-        }
+    if 'version' in columns:
+        # 버전 컬럼이 있는 경우
+        cursor.execute('''
+            SELECT product_code, lot, expiry, version, location, category
+            FROM label_info WHERE serial_number = ?
+        ''', (serial_number,))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return {
+                'product_code': result[0],
+                'lot': result[1],
+                'expiry': result[2],
+                'version': result[3],
+                'location': result[4],
+                'category': result[5]
+            }
     else:
-        return None
+        # 버전 컬럼이 없는 경우 (기존 데이터)
+        cursor.execute('''
+            SELECT product_code, lot, expiry, location, category
+            FROM label_info WHERE serial_number = ?
+        ''', (serial_number,))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return {
+                'product_code': result[0],
+                'lot': result[1],
+                'expiry': result[2],
+                'version': 'N/A',  # 기본값
+                'location': result[3],
+                'category': result[4]
+            }
+    
+    return None
 
 def process_serial_barcode(serial_number):
     """일련번호 바코드 처리"""
@@ -1542,6 +2068,7 @@ def process_serial_barcode(serial_number):
             product_code = label_info['product_code']
             lot = label_info['lot']
             expiry = label_info['expiry']
+            version = label_info['version']
             location = label_info['location']
             category = label_info['category']
             
@@ -1555,6 +2082,7 @@ def process_serial_barcode(serial_number):
 제품명: {product_name}
 LOT: {lot}
 유통기한: {expiry}
+버전: {version}
 보관위치: {location}
 구분: {category}
 """
