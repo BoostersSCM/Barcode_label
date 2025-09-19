@@ -32,9 +32,11 @@ def get_worksheet(spreadsheet, sheet_name):
         worksheet = spreadsheet.add_worksheet(title=sheet_name, rows="1000", cols="20")
         headers = []
         if sheet_name == "재고_현황":
-            headers = ["일련번호", "구분", "제품코드", "제품명", "LOT", "유통기한", "폐기기한", "보관위치", "버전", "입고일시", "상태", "출고일시", "출고처"]
+            # 👇 '출고처'를 '출고담당자'로 변경
+            headers = ["일련번호", "구분", "제품코드", "제품명", "LOT", "유통기한", "폐기기한", "보관위치", "버전", "입고일시", "상태", "출고일시", "출고담당자"]
         elif sheet_name == "입출고_기록":
-            headers = ["타임스탬프", "유형", "일련번호", "제품코드", "제품명", "출고처"]
+            # 👇 '출고처'를 '출고담당자'로 변경
+            headers = ["타임스탬프", "유형", "일련번호", "제품코드", "제품명", "출고담당자"]
         if headers:
             worksheet.append_row(headers)
         return worksheet
@@ -93,7 +95,6 @@ def delete_rows_by_serial(worksheet, serials_to_delete):
         rows_to_delete_indices = []
         for serial in serials_to_delete:
             try:
-                # gspread는 1-based index, 리스트는 0-based
                 row_index = all_serials.index(str(serial)) + 1
                 rows_to_delete_indices.append(row_index)
             except ValueError:
@@ -102,7 +103,6 @@ def delete_rows_by_serial(worksheet, serials_to_delete):
         if not rows_to_delete_indices:
             return True, 0
             
-        # 행 인덱스를 역순으로 정렬하여 삭제 시 인덱스 변경 문제를 방지
         rows_to_delete_indices.sort(reverse=True)
         
         for row_index in rows_to_delete_indices:
