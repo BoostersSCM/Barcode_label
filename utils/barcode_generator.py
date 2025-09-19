@@ -10,13 +10,13 @@ def get_korean_font(size):
     프로젝트에 포함된 한글 폰트를 로드합니다.
     Streamlit Cloud 환경에서 안정적으로 작동하도록 설계되었습니다.
     """
-    font_path = os.path.join("fonts", "NotoSansKR-Regular.otf")
+    font_path = os.path.join("fonts", "NotoSansKR-Regular.ttf")
     try:
         font = ImageFont.truetype(font_path, size)
         print(f"폰트 로드 성공: {font_path}")
         return font
     except Exception as e:
-        st.error(f"🚨 폰트 파일 로드 실패! 'fonts/NotoSansKR-Regular.otf' 파일이 있는지 확인하세요. 오류: {e}")
+        st.error(f"🚨 폰트 파일 로드 실패! 'fonts/NotoSansKR-Regular.ttf' 파일이 있는지 확인하세요. 오류: {e}")
         return ImageFont.load_default()
 
 def wrap_text(draw, text, font, max_width):
