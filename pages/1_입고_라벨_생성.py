@@ -29,8 +29,14 @@ with st.form("inbound_form"):
     st.subheader("제품 정보 입력")
     product_code = st.selectbox("제품", options=list(PRODUCTS.keys()), format_func=lambda x: f"{x} ({PRODUCTS.get(x, '알수없음')})")
     lot_number = st.text_input("LOT 번호")
-    expiry_date = st.date_input("유통기한", value=datetime.now() + timedelta(days=365))
-    version = st.text_input("버전", "1.0")
+    
+    # 👇 유통기한 기본값을 오늘로부터 3년 후로 설정
+    default_expiry_date = datetime.now() + timedelta(days=365 * 3)
+    expiry_date = st.date_input("유통기한", value=default_expiry_date)
+    
+    # 👇 버전 기본값을 "R0"으로 설정
+    version = st.text_input("버전", value="R0")
+    
     location = st.selectbox("보관위치", options=LOCATIONS)
     category = st.selectbox("구분", ["관리품", "표준품", "벌크표준", "샘플재고"])
 
@@ -48,7 +54,6 @@ if submitted:
             product_name = PRODUCTS.get(product_code, "알 수 없는 제품")
             expiry_str = expiry_date.strftime('%Y-%m-%d')
             
-            # 👇 폐기일자 자동 계산 (유통기한 + 1년)
             disposal_date = expiry_date + timedelta(days=365)
             disposal_date_str = disposal_date.strftime('%Y-%m-%d')
 
@@ -65,21 +70,10 @@ if submitted:
 
             now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            # 👇 요청하신 순서대로 데이터 리스트 생성
             inventory_data = [
-                serial_number,      # A열: 바코드 번호
-                category,           # B열: 구분
-                product_code,       # C열: 제품코드
-                product_name,       # D열: 제품명
-                lot_number,         # E열: LOT
-                expiry_str,         # F열: 유통기한
-                disposal_date_str,  # G열: 폐기기한
-                location,           # H열: 보관위치
-                version,            # I열: 버전
-                now_str,            # J열: 발행일시 (입고일시로 사용)
-                "재고",             # 상태
-                "",                 # 출고일시
-                ""                  # 출고처
+                serial_number, category, product_code, product_name, lot_number,
+                expiry_str, disposal_date_str, location, version, now_str,
+                "재고", "", ""
             ]
             gsm.add_row(inventory_ws, inventory_data)
 
