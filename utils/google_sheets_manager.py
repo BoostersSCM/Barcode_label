@@ -38,4 +38,48 @@ def get_worksheet(spreadsheet, sheet_name):
         if headers:
             worksheet.append_row(headers)
         return worksheet
-    except Exception
+    # 👇 빠졌던 콜론(:)을 추가하고 예외 메시지를 포함합니다.
+    except Exception as e:
+        st.error(f"워크시트 '{sheet_name}' 처리 실패: {e}")
+        return None
+
+def get_next_serial_number(worksheet):
+    """'재고_현황' 시트에서 다음 일련번호를 생성합니다."""
+    try:
+        serials_raw = worksheet.col_values(1)
+        numeric_serials = [int(s) for s in serials_raw[1:] if s and str(s).isdigit()]
+        last_serial = max(numeric_serials) if numeric_serials else 0
+        return last_serial + 1
+    except Exception as e:
+        st.error(f"다음 일련번호 생성 실패: {e}")
+        return None
+
+def add_row(worksheet, data):
+    """워크시트에 새로운 행을 추가합니다."""
+    try:
+        worksheet.append_row(data)
+        return True
+    except Exception as e:
+        st.error(f"행 추가 실패: {e}")
+        return False
+
+def find_row_and_update(worksheet, serial_number, update_data):
+    """일련번호로 행을 찾아 데이터를 업데이트합니다."""
+    try:
+        cell = worksheet.find(str(serial_number), in_column=1)
+        if not cell: return "NOT_FOUND"
+        
+        row_index = cell.row
+        headers = worksheet.row_values(1)
+        
+        status_col_index = headers.index("상태") + 1
+        if worksheet.cell(row_index, status_col_index).value == "출고됨": return "ALREADY_SHIPPED"
+        
+        for col_name, value in update_data.items():
+            if col_name in headers:
+                col_index = headers.index(col_name) + 1
+                worksheet.update_cell(row_index, col_index, value)
+        return "SUCCESS"
+    except Exception as e:
+        st.error(f"행 업데이트 실패: {e}")
+        return "ERROR"
