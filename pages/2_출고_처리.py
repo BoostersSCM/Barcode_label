@@ -1,18 +1,9 @@
 import streamlit as st
-import pandas as pd
 from datetime import datetime
-from utils import google_sheets_manager as gsm
-from utils import db_manager
+from utils import google_sheets_manager as gsm, db_manager
 
 st.set_page_config(page_title="출고 처리", page_icon="📤")
 st.title("📤 출고 처리")
-
-# --- 데이터 로드 ---
-product_df = db_manager.load_product_data()
-if product_df.empty:
-    st.error("데이터베이스에서 제품 정보를 불러올 수 없습니다. 설정을 확인하세요.")
-    st.stop()
-barcode_map = product_df.set_index('바코드').to_dict('index')
 
 # --- 구글 시트 연결 ---
 client = gsm.connect_to_google_sheets()
@@ -26,7 +17,6 @@ if not inventory_ws or not history_ws: st.stop()
 # --- 출고 처리 폼 ---
 st.info("여기에 라벨의 '일련번호' 또는 '제품 바코드(88...)'를 스캔하세요.")
 scanned_code = st.text_input("스캔된 코드", key="barcode_input", placeholder="S/N 또는 88... 바코드")
-# 👇 '출고처'를 '출고담당자'로, 예시를 '홍길동'으로 변경
 outbound_person = st.text_input("출고담당자", placeholder="예: 홍길동")
 
 if st.button("출고 처리 실행"):
@@ -38,9 +28,9 @@ if st.button("출고 처리 실행"):
 
         with st.spinner(f"코드 '{scanned_code}' 처리 중..."):
             
+            # 시나리오 1: 일련번호 출고
             if scanned_code.isdigit():
                 st.write("🔹 일련번호(S/N) 출고를 처리합니다 (재고 차감).")
-                # 👇 업데이트할 데이터의 키와 값을 수정
                 update_data = {"상태": "출고됨", "출고일시": now_str, "출고담당자": outbound_person}
                 result = gsm.find_row_and_update(inventory_ws, scanned_code, update_data)
 
@@ -57,7 +47,6 @@ if st.button("출고 처리 실행"):
                     except Exception:
                         st.warning("출고 기록 시 제품 정보를 찾지 못했지만, 출고 처리는 완료되었습니다.")
 
-                    # 👇 기록 데이터 수정
                     history_data = [now_str, "출고", scanned_code, product_code, product_name, outbound_person]
                     gsm.add_row(history_ws, history_data)
 
@@ -65,16 +54,17 @@ if st.button("출고 처리 실행"):
                 elif result == "ALREADY_SHIPPED": st.warning(f"⚠️ 경고: 일련번호 '{scanned_code}'은(는) 이미 출고된 제품입니다.")
                 else: st.error("❌ 처리 중 알 수 없는 오류가 발생했습니다.")
 
+            # 시나리오 2: 제품 바코드 출고 (DB 직접 조회)
             elif scanned_code.startswith('88'):
                 st.write("🔹 제품 바코드 출고를 처리합니다 (기록만 남김).")
                 
-                product_info = barcode_map.get(scanned_code)
+                # 👇 DB에 직접 조회하여 제품 정보 가져오기
+                product_info = db_manager.find_product_info_by_barcode(scanned_code)
 
                 if product_info:
-                    product_code = product_info.get('제품코드', 'N/A')
-                    product_name = product_info.get('제품명', 'N/A')
+                    product_code = product_info.get('resource_code', 'N/A')
+                    product_name = product_info.get('resource_name', 'N/A')
 
-                    # 👇 기록 데이터 수정
                     history_data = [now_str, "출고", "N/A", product_code, product_name, outbound_person]
                     if gsm.add_row(history_ws, history_data):
                         st.success(f"✅ 제품 '{product_name}'의 출고 기록이 추가되었습니다.")
