@@ -29,7 +29,6 @@ if not inventory_ws or not history_ws: st.stop()
 st.info("여기에 라벨의 '일련번호' 또는 '제품 바코드(88...)'를 스캔하세요.")
 scanned_code = st.text_input("스캔된 코드", key="barcode_input", placeholder="S/N 또는 88... 바코드")
 outbound_person = st.text_input("출고담당자", placeholder="예: 홍길동")
-# 👇 수량 입력 필드 추가
 quantity = st.number_input("수량", min_value=1, value=1, step=1)
 
 if st.button("출고 처리 실행"):
@@ -41,8 +40,27 @@ if st.button("출고 처리 실행"):
 
         with st.spinner(f"코드 '{scanned_code}' 처리 중..."):
             
-            # 시나리오 1: 일련번호 출고
-            if scanned_code.isdigit():
+            # 👇 조건문 순서 변경: '88'로 시작하는지 먼저 확인
+            
+            # 시나리오 1: 제품 바코드(88...) 출고 (기록만)
+            if scanned_code.startswith('88'):
+                st.write("🔹 제품 바코드 출고를 처리합니다 (기록만 남김).")
+                product_info = barcode_map.get(scanned_code)
+
+                if product_info:
+                    product_code = product_info.get('제품코드', 'N/A')
+                    product_name = product_info.get('제품명', 'N/A')
+
+                    history_data = [now_str, "출고", "N/A", product_code, product_name, quantity, outbound_person]
+                    if gsm.add_row(history_ws, history_data):
+                        st.success(f"✅ 제품 '{product_name}' {quantity}개의 출고 기록이 추가되었습니다.")
+                    else:
+                        st.error("❌ 출고 기록 추가에 실패했습니다.")
+                else:
+                    st.error(f"❌ 오류: DB에 등록되지 않은 제품 바코드입니다: {scanned_code}")
+
+            # 시나리오 2: 일련번호(S/N) 출고 (재고 차감)
+            elif scanned_code.isdigit():
                 st.info("일련번호(S/N) 출고 시 수량은 항상 1로 처리됩니다.")
                 update_data = {"상태": "출고됨", "출고일시": now_str, "출고담당자": outbound_person}
                 result = gsm.find_row_and_update(inventory_ws, scanned_code, update_data)
@@ -60,7 +78,6 @@ if st.button("출고 처리 실행"):
                     except Exception:
                         st.warning("출고 기록 시 제품 정보를 찾지 못했지만, 출고 처리는 완료되었습니다.")
 
-                    # 👇 기록 데이터에 수량 '1' 추가
                     history_data = [now_str, "출고", scanned_code, product_code, product_name, 1, outbound_person]
                     gsm.add_row(history_ws, history_data)
 
@@ -68,22 +85,6 @@ if st.button("출고 처리 실행"):
                 elif result == "ALREADY_SHIPPED": st.warning(f"⚠️ 경고: 일련번호 '{scanned_code}'은(는) 이미 출고된 제품입니다.")
                 else: st.error("❌ 처리 중 알 수 없는 오류가 발생했습니다.")
 
-            # 시나리오 2: 제품 바코드 출고
-            elif scanned_code.startswith('88'):
-                product_info = barcode_map.get(scanned_code)
-
-                if product_info:
-                    product_code = product_info.get('제품코드', 'N/A')
-                    product_name = product_info.get('제품명', 'N/A')
-
-                    # 👇 기록 데이터에 입력된 '수량' 추가
-                    history_data = [now_str, "출고", "N/A", product_code, product_name, quantity, outbound_person]
-                    if gsm.add_row(history_ws, history_data):
-                        st.success(f"✅ 제품 '{product_name}' {quantity}개의 출고 기록이 추가되었습니다.")
-                    else:
-                        st.error("❌ 출고 기록 추가에 실패했습니다.")
-                else:
-                    st.error(f"❌ 오류: DB에 등록되지 않은 제품 바코드입니다: {scanned_code}")
-
+            # 시나리오 3: 유효하지 않은 코드
             else:
                 st.error("❌ 오류: 유효하지 않은 코드입니다. 일련번호(숫자) 또는 제품 바코드(88...)를 스캔하세요.")
