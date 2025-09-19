@@ -17,16 +17,16 @@ if not inventory_ws or not history_ws: st.stop()
 # --- 출고 처리 폼 ---
 st.info("여기에 바코드 스캐너로 라벨의 일련번호를 스캔하세요.")
 scanned_serial = st.text_input("스캔된 일련번호 (S/N)", key="barcode_input")
-destination = st.text_input("출고처 (예: 온라인 판매, 매장 이동)")
+destination = st.text_input("출고자 (예: 홍길동)")
 
 if st.button("출고 처리 실행"):
     if not scanned_serial or not destination:
-        st.warning("일련번호와 출고처를 모두 입력해주세요.")
+        st.warning("일련번호와 출고자를 모두 입력해주세요.")
     else:
         with st.spinner(f"일련번호 '{scanned_serial}' 처리 중..."):
             
             now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            update_data = {"상태": "출고됨", "출고일시": now_str, "출고처": destination}
+            update_data = {"상태": "출고됨", "출고일시": now_str, "출고자": destination}
             
             result = gsm.find_row_and_update(inventory_ws, scanned_serial, update_data)
 
