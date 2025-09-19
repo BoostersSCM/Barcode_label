@@ -38,7 +38,6 @@ def get_worksheet(spreadsheet, sheet_name):
         if headers:
             worksheet.append_row(headers)
         return worksheet
-    # 👇 빠졌던 콜론(:)을 추가하고 예외 메시지를 포함합니다.
     except Exception as e:
         st.error(f"워크시트 '{sheet_name}' 처리 실패: {e}")
         return None
@@ -83,3 +82,34 @@ def find_row_and_update(worksheet, serial_number, update_data):
     except Exception as e:
         st.error(f"행 업데이트 실패: {e}")
         return "ERROR"
+
+def delete_rows_by_serial(worksheet, serials_to_delete):
+    """'재고_현황' 시트에서 제공된 일련번호 목록에 해당하는 행들을 삭제합니다."""
+    if not serials_to_delete:
+        return True, 0
+    
+    try:
+        all_serials = worksheet.col_values(1)
+        rows_to_delete_indices = []
+        for serial in serials_to_delete:
+            try:
+                # gspread는 1-based index, 리스트는 0-based
+                row_index = all_serials.index(str(serial)) + 1
+                rows_to_delete_indices.append(row_index)
+            except ValueError:
+                continue
+        
+        if not rows_to_delete_indices:
+            return True, 0
+            
+        # 행 인덱스를 역순으로 정렬하여 삭제 시 인덱스 변경 문제를 방지
+        rows_to_delete_indices.sort(reverse=True)
+        
+        for row_index in rows_to_delete_indices:
+            worksheet.delete_rows(row_index)
+            
+        return True, len(rows_to_delete_indices)
+
+    except Exception as e:
+        st.error(f"행 삭제 실패: {e}")
+        return False, 0
