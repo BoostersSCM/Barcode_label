@@ -14,6 +14,7 @@ if product_df.empty:
     st.stop()
 
 PRODUCTS = pd.Series(product_df.제품명.values, index=product_df.제품코드).to_dict()
+barcode_map = product_df.set_index('바코드')['제품코드'].to_dict()
 PRODUCT_CODES = list(PRODUCTS.keys())
 
 # --- 구글 시트 연결 ---
@@ -25,7 +26,6 @@ inventory_ws = gsm.get_worksheet(spreadsheet, "재고_현황")
 history_ws = gsm.get_worksheet(spreadsheet, "입출고_기록")
 if not inventory_ws or not history_ws: st.stop()
 
-
 # --- 콜백 함수 정의 ---
 def find_product_by_barcode():
     """바코드 스캔 시 DB를 조회하여 제품을 찾는 함수"""
@@ -36,22 +36,27 @@ def find_product_by_barcode():
             st.session_state.selected_product_code = product_info['resource_code']
         else:
             st.warning(f"'{scanned_barcode}'에 해당하는 제품을 DB에서 찾을 수 없습니다.")
+    # 콜백 실행 후 입력 필드 초기화
+    st.session_state.barcode_scan_input = ""
+
 
 # --- 세션 상태 초기화 ---
 if "selected_product_code" not in st.session_state:
     st.session_state.selected_product_code = PRODUCT_CODES[0] if PRODUCT_CODES else None
 
-# --- 입력 폼 ---
+# --- 입력 UI ---
+st.subheader("제품 정보 입력")
+
+# 👇 바코드 스캔 입력 필드를 st.form 밖으로 이동
+st.text_input(
+    "⌨️ 바코드 스캔으로 제품 찾기",
+    key="barcode_scan_input",
+    on_change=find_product_by_barcode,
+    placeholder="여기에 '88...' 바코드를 스캔하고 Enter를 누르세요"
+)
+
+# 👇 st.form은 여기부터 시작
 with st.form("inbound_form"):
-    st.subheader("제품 정보 입력")
-
-    st.text_input(
-        "⌨️ 바코드 스캔으로 제품 찾기",
-        key="barcode_scan_input",
-        on_change=find_product_by_barcode,
-        placeholder="여기에 '88...' 바코드를 스캔하세요"
-    )
-
     try:
         selected_index = PRODUCT_CODES.index(st.session_state.selected_product_code)
     except (ValueError, AttributeError):
@@ -64,7 +69,6 @@ with st.form("inbound_form"):
         format_func=lambda x: f"{x} ({PRODUCTS.get(x, '알수없음')})"
     )
     
-    # (이하 코드는 이전과 동일)
     location = st.selectbox("보관위치", options=[f"{zone}-{row:02d}-{col:02d}" for zone in 'ABCDE' for row in range(1, 6) for col in range(1, 4)])
     category = st.selectbox("구분", ["관리품", "표준품", "벌크표준", "샘플재고"])
 
