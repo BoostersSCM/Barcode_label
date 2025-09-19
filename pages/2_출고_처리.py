@@ -8,12 +8,20 @@ st.set_page_config(page_title="출고 처리", page_icon="📤")
 st.title("📤 출고 처리")
 
 # --- 데이터 로드 ---
-# 88 바코드를 제품 정보로 변환하기 위해 DB에서 제품 목록을 불러옵니다.
 product_df = db_manager.load_product_data()
 if product_df.empty:
     st.error("데이터베이스에서 제품 정보를 불러올 수 없습니다. 설정을 확인하세요.")
     st.stop()
-# 바코드를 키로, 제품 정보를 값으로 하는 딕셔너리를 만듭니다.
+
+# --- 데이터 정제 (중복/빈 바코드 제거) ---
+# 1. '바코드' 컬럼이 비어있거나(NaN, None) 공백만 있는 행을 제거합니다.
+product_df.dropna(subset=['바코드'], inplace=True)
+product_df = product_df[product_df['바코드'].astype(str).str.strip() != '']
+
+# 2. 중복된 바코드가 있을 경우, 첫 번째 제품만 남기고 나머지는 제거합니다.
+product_df.drop_duplicates(subset=['바코드'], keep='first', inplace=True)
+
+# 이제 바코드 값은 고유하므로, 안전하게 딕셔너리를 생성할 수 있습니다.
 barcode_map = product_df.set_index('바코드').to_dict('index')
 
 
@@ -41,7 +49,6 @@ if st.button("출고 처리 실행"):
 
         with st.spinner(f"코드 '{scanned_code}' 처리 중..."):
             
-            # 시나리오 1: 스캔된 코드가 숫자일 경우 (일련번호 처리)
             if scanned_code.isdigit():
                 st.write("🔹 일련번호(S/N) 출고를 처리합니다 (재고 차감).")
                 update_data = {"상태": "출고됨", "출고일시": now_str, "출고처": destination}
@@ -67,18 +74,15 @@ if st.button("출고 처리 실행"):
                 elif result == "ALREADY_SHIPPED": st.warning(f"⚠️ 경고: 일련번호 '{scanned_code}'은(는) 이미 출고된 제품입니다.")
                 else: st.error("❌ 처리 중 알 수 없는 오류가 발생했습니다.")
 
-            # 시나리오 2: 스캔된 코드가 '88'로 시작할 경우 (제품 바코드 처리)
             elif scanned_code.startswith('88'):
                 st.write("🔹 제품 바코드 출고를 처리합니다 (기록만 남김).")
                 
-                # 스캔된 바코드에 해당하는 제품 정보 찾기
                 product_info = barcode_map.get(scanned_code)
 
                 if product_info:
                     product_code = product_info.get('제품코드', 'N/A')
                     product_name = product_info.get('제품명', 'N/A')
 
-                    # '입출고_기록' 시트에만 기록 (일련번호는 'N/A'로)
                     history_data = [now_str, "출고", "N/A", product_code, product_name, destination]
                     if gsm.add_row(history_ws, history_data):
                         st.success(f"✅ 제품 '{product_name}'의 출고 기록이 추가되었습니다.")
@@ -87,6 +91,5 @@ if st.button("출고 처리 실행"):
                 else:
                     st.error(f"❌ 오류: DB에 등록되지 않은 제품 바코드입니다: {scanned_code}")
 
-            # 시나리오 3: 유효하지 않은 코드
             else:
                 st.error("❌ 오류: 유효하지 않은 코드입니다. 일련번호(숫자) 또는 제품 바코드(88...)를 스캔하세요.")
