@@ -1,6 +1,7 @@
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
+import pandas as pd
 
 @st.cache_resource
 def connect_to_google_sheets():
@@ -37,57 +38,4 @@ def get_worksheet(spreadsheet, sheet_name):
         if headers:
             worksheet.append_row(headers)
         return worksheet
-    except Exception as e:
-        st.error(f"워크시트 '{sheet_name}' 처리 실패: {e}")
-        return None
-
-def get_next_serial_number(worksheet):
-    """
-    '재고_현황' 시트에서 다음 일련번호를 생성합니다. (빈 칸이나 숫자가 아닌 값을 무시하는 안정적인 방식)
-    """
-    try:
-        # A열(일련번호)의 모든 값을 가져옵니다.
-        serials = worksheet.col_values(1)
-        last_serial = 0  # 기본값을 0으로 설정
-        
-        # 리스트의 뒤에서부터 거꾸로 순회하며 유효한 숫자를 찾습니다.
-        for serial_str in reversed(serials):
-            # 값이 비어있지 않고, 숫자로만 구성되어 있는지 확인
-            if serial_str and serial_str.isdigit():
-                last_serial = int(serial_str)
-                break  # 첫 번째로 찾은 유효한 숫자가 가장 큰 값이므로 반복 중단
-        
-        return last_serial + 1
-    except Exception as e:
-        st.error(f"다음 일련번호 생성 실패: {e}")
-        return None
-
-def add_row(worksheet, data):
-    """워크시트에 새로운 행을 추가합니다."""
-    try:
-        worksheet.append_row(data)
-        return True
-    except Exception as e:
-        st.error(f"행 추가 실패: {e}")
-        return False
-
-def find_row_and_update(worksheet, serial_number, update_data):
-    """일련번호로 행을 찾아 데이터를 업데이트합니다."""
-    try:
-        cell = worksheet.find(str(serial_number), in_column=1)
-        if not cell: return "NOT_FOUND"
-        
-        row_index = cell.row
-        headers = worksheet.row_values(1)
-        
-        status_col_index = headers.index("상태") + 1
-        if worksheet.cell(row_index, status_col_index).value == "출고됨": return "ALREADY_SHIPPED"
-        
-        for col_name, value in update_data.items():
-            if col_name in headers:
-                col_index = headers.index(col_name) + 1
-                worksheet.update_cell(row_index, col_index, value)
-        return "SUCCESS"
-    except Exception as e:
-        st.error(f"행 업데이트 실패: {e}")
-        return "ERROR"
+    except Exception
