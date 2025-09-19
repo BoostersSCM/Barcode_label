@@ -20,24 +20,29 @@ def get_korean_font(size):
         return ImageFont.load_default()
 
 def wrap_text(draw, text, font, max_width):
-    """텍스트가 최대 너비를 초과하면 자동으로 줄바꿈하여 리스트로 반환합니다."""
+    """
+    텍스트가 최대 너비를 초과하면 자동으로 줄바꿈하여 리스트로 반환합니다.
+    공백 없는 긴 텍스트도 글자 단위로 잘라 처리합니다.
+    """
+    lines = []
+    
+    # 텍스트가 최대 너비보다 짧으면 그대로 반환
     if draw.textlength(text, font) <= max_width:
         return [text]
 
-    lines = []
-    words = text.split()
     current_line = ""
-
-    for word in words:
-        if draw.textlength(current_line + word, font) <= max_width:
-            current_line += word + " "
+    for char in text:
+        # 현재 줄에 다음 글자를 추가했을 때 너비가 초과하는지 확인
+        if draw.textlength(current_line + char, font) <= max_width:
+            current_line += char
         else:
-            if current_line:
-                lines.append(current_line.strip())
-            current_line = word + " "
+            # 너비가 초과하면 현재 줄을 추가하고 새 줄 시작
+            lines.append(current_line)
+            current_line = char
     
+    # 마지막 줄 추가
     if current_line:
-        lines.append(current_line.strip())
+        lines.append(current_line)
         
     return lines
 
@@ -59,19 +64,22 @@ def create_barcode_image(serial_number, product_code, product_name, lot, expiry,
     # --- 라벨 내용 그리기 ---
     y_pos, margin = 10, 15
     
-    # 👇 제품명 자동 줄바꿈 처리
     prefix = "제품명: "
     prefix_width = draw.textlength(prefix, font=font_large)
+    
+    # 👇 개선된 줄바꿈 함수 사용
     wrapped_lines = wrap_text(draw, product_name, font_large, LABEL_WIDTH - margin * 2 - prefix_width)
 
-    for i, line in enumerate(wrapped_lines):
+    # 최대 2줄까지만 표시 (라벨 공간 제약)
+    for i, line in enumerate(wrapped_lines[:2]):
         if i == 0:
             draw.text((margin, y_pos), prefix + line, fill="black", font=font_large)
         else:
+            # 두 번째 줄은 들여쓰기 적용
             draw.text((margin + prefix_width, y_pos), line, fill="black", font=font_large)
-        y_pos += 24 # 줄 간격
+        y_pos += 24
 
-    y_pos += 6 # 추가 간격
+    y_pos += 6
     draw.text((margin, y_pos), f"구분: {category}", fill="black", font=font_medium); y_pos += 24
     draw.text((margin, y_pos), f"LOT: {lot} | 유통기한: {expiry}", fill="black", font=font_small); y_pos += 22
     draw.text((margin, y_pos), f"보관위치: {location} | 버전: {version}", fill="black", font=font_small)
