@@ -12,8 +12,9 @@ product_df = db_manager.load_product_data()
 if product_df.empty:
     st.error("데이터베이스에서 제품 정보를 불러올 수 없습니다. 설정을 확인하세요.")
     st.stop()
+
 PRODUCTS = pd.Series(product_df.제품명.values, index=product_df.제품코드).to_dict()
-LOCATIONS = [f"{zone}-{row:02d}-{col:02d}" for zone in 'ABCDE' for row in range(1, 6) for col in range(1, 4)]
+PRODUCT_CODES = list(PRODUCTS.keys())
 
 # --- 구글 시트 연결 ---
 client = gsm.connect_to_google_sheets()
@@ -24,38 +25,65 @@ inventory_ws = gsm.get_worksheet(spreadsheet, "재고_현황")
 history_ws = gsm.get_worksheet(spreadsheet, "입출고_기록")
 if not inventory_ws or not history_ws: st.stop()
 
+
+# --- 콜백 함수 정의 ---
+def find_product_by_barcode():
+    """바코드 스캔 시 DB를 조회하여 제품을 찾는 함수"""
+    scanned_barcode = st.session_state.get("barcode_scan_input", "").strip()
+    if scanned_barcode:
+        product_info = db_manager.find_product_info_by_barcode(scanned_barcode)
+        if product_info and 'resource_code' in product_info:
+            st.session_state.selected_product_code = product_info['resource_code']
+        else:
+            st.warning(f"'{scanned_barcode}'에 해당하는 제품을 DB에서 찾을 수 없습니다.")
+
+# --- 세션 상태 초기화 ---
+if "selected_product_code" not in st.session_state:
+    st.session_state.selected_product_code = PRODUCT_CODES[0] if PRODUCT_CODES else None
+
 # --- 입력 폼 ---
 with st.form("inbound_form"):
     st.subheader("제품 정보 입력")
-    product_code = st.selectbox("제품", options=list(PRODUCTS.keys()), format_func=lambda x: f"{x} ({PRODUCTS.get(x, '알수없음')})")
-    location = st.selectbox("보관위치", options=LOCATIONS)
+
+    st.text_input(
+        "⌨️ 바코드 스캔으로 제품 찾기",
+        key="barcode_scan_input",
+        on_change=find_product_by_barcode,
+        placeholder="여기에 '88...' 바코드를 스캔하세요"
+    )
+
+    try:
+        selected_index = PRODUCT_CODES.index(st.session_state.selected_product_code)
+    except (ValueError, AttributeError):
+        selected_index = 0
+
+    product_code = st.selectbox(
+        "📦 제품 (수동 선택)",
+        options=PRODUCT_CODES,
+        index=selected_index,
+        format_func=lambda x: f"{x} ({PRODUCTS.get(x, '알수없음')})"
+    )
+    
+    # (이하 코드는 이전과 동일)
+    location = st.selectbox("보관위치", options=[f"{zone}-{row:02d}-{col:02d}" for zone in 'ABCDE' for row in range(1, 6) for col in range(1, 4)])
     category = st.selectbox("구분", ["관리품", "표준품", "벌크표준", "샘플재고"])
 
-    # '구분' 선택에 따라 UI를 동적으로 변경
     if category == "샘플재고":
         st.info("샘플재고는 LOT, 유통기한, 버전이 자동으로 설정됩니다.")
-        lot_number = "SAMPLE"
-        expiry_date = "N/A"
-        version = "N/A"
-        
-        # 비활성화된 필드로 자동 설정된 값 보여주기
+        lot_number, expiry_date, version = "SAMPLE", "N/A", "N/A"
         st.text_input("LOT 번호", value=lot_number, disabled=True)
         st.text_input("유통기한", value=expiry_date, disabled=True)
         st.text_input("버전", value=version, disabled=True)
-        
-    else: # 관리품, 표준품, 벌크표준의 경우
+    else:
         lot_number = st.text_input("LOT 번호")
-        # 유통기한 기본값을 오늘로부터 3년 후로 설정
         default_expiry_date = datetime.now().date() + timedelta(days=365 * 3)
         expiry_date = st.date_input("유통기한", value=default_expiry_date)
-        # 버전 기본값을 "R0"으로 설정
         version = st.text_input("버전", value="R0")
 
     submitted = st.form_submit_button("라벨 생성 및 입고 처리")
 
 # --- 로직 처리 ---
 if submitted:
-    # 샘플재고가 아닐 경우에만 빈 값인지 확인
     if category != "샘플재고" and not all([product_code, lot_number, expiry_date, version, location]):
         st.warning("모든 필드를 입력해주세요.")
     elif not all([product_code, location]):
@@ -67,14 +95,12 @@ if submitted:
             
             product_name = PRODUCTS.get(product_code, "알 수 없는 제품")
             
-            # 유통기한 및 폐기일자 처리
             if isinstance(expiry_date, date):
                 expiry_str = expiry_date.strftime('%Y-%m-%d')
                 disposal_date = expiry_date + timedelta(days=365)
                 disposal_date_str = disposal_date.strftime('%Y-%m-%d')
-            else: # 샘플재고의 경우 "N/A"
-                expiry_str = "N/A"
-                disposal_date_str = "N/A"
+            else:
+                expiry_str, disposal_date_str = "N/A", "N/A"
 
             label_img = barcode_generator.create_barcode_image(
                 serial_number, product_code, product_name, lot_number, expiry_str, version, location, category
@@ -90,19 +116,9 @@ if submitted:
             now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
             inventory_data = [
-                serial_number,      # A열: 바코드 번호 (일련번호)
-                category,           # B열: 구분
-                product_code,       # C열: 제품코드
-                product_name,       # D열: 제품명
-                lot_number,         # E열: LOT
-                expiry_str,         # F열: 유통기한
-                disposal_date_str,  # G열: 폐기기한
-                location,           # H열: 보관위치
-                version,            # I열: 버전
-                now_str,            # J열: 발행일시 (입고일시로 사용)
-                "재고",             # 상태
-                "",                 # 출고일시
-                ""                  # 출고처
+                serial_number, category, product_code, product_name, lot_number,
+                expiry_str, disposal_date_str, location, version, now_str,
+                "재고", "", ""
             ]
             gsm.add_row(inventory_ws, inventory_data)
 
