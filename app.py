@@ -7,6 +7,9 @@ st.set_page_config(
 )
 
 st.title("📦 바코드 재고관리 시스템")
+st.image("https://storage.googleapis.com/gweb-uniblog-publish-prod/images/Gemini_SS.width-1300.jpg",
+         caption="Powered by Gemini")
+
 
 st.markdown("""
 ### 시작하기
@@ -21,7 +24,8 @@ st.markdown("""
 
 **💡 사용 전 준비사항**
 
-1.  `secrets.toml` 파일에 Google Cloud 서비스 계정 정보와 스프레드시트 ID를 설정해야 합니다.
+1.  `.streamlit/secrets.toml` 파일에 Google Cloud 서비스 계정 정보와 스프레드시트 ID를 설정해야 합니다.
 2.  Google Sheets API와 Google Drive API가 활성화되어 있어야 합니다.
 3.  서비스 계정 이메일에 대상 스프레드시트의 **편집자 권한**을 부여해야 합니다.
+4.  MySQL 데이터베이스의 방화벽이 외부 접속을 허용하는지 확인해야 합니다.
 """)
