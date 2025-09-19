@@ -31,7 +31,8 @@ def get_worksheet(spreadsheet, sheet_name):
         worksheet = spreadsheet.add_worksheet(title=sheet_name, rows="1000", cols="20")
         headers = []
         if sheet_name == "재고_현황":
-            headers = ["일련번호", "제품코드", "LOT", "유통기한", "버전", "보관위치", "상태", "입고일시", "출고일시", "출고처"]
+            # 요청하신 컬럼 순서로 헤더 정의
+            headers = ["일련번호", "구분", "제품코드", "제품명", "LOT", "유통기한", "폐기기한", "보관위치", "버전", "입고일시", "상태", "출고일시", "출고처"]
         elif sheet_name == "입출고_기록":
             headers = ["타임스탬프", "유형", "일련번호", "제품코드", "제품명", "출고처"]
         if headers:
@@ -44,7 +45,7 @@ def get_worksheet(spreadsheet, sheet_name):
 def get_next_serial_number(worksheet):
     """'재고_현황' 시트에서 다음 일련번호를 생성합니다."""
     try:
-        serials = worksheet.col_values(1)
+        serials = worksheet.col_values(1) # A열이 일련번호
         return 1 if len(serials) <= 1 else int(serials[-1]) + 1
     except Exception as e:
         st.error(f"다음 일련번호 생성 실패: {e}")
@@ -66,9 +67,11 @@ def find_row_and_update(worksheet, serial_number, update_data):
         if not cell: return "NOT_FOUND"
         
         row_index = cell.row
-        if worksheet.cell(row_index, 7).value == "출고됨": return "ALREADY_SHIPPED"
-        
         headers = worksheet.row_values(1)
+        
+        status_col_index = headers.index("상태") + 1
+        if worksheet.cell(row_index, status_col_index).value == "출고됨": return "ALREADY_SHIPPED"
+        
         for col_name, value in update_data.items():
             if col_name in headers:
                 col_index = headers.index(col_name) + 1
