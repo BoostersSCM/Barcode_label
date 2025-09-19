@@ -26,21 +26,17 @@ def wrap_text(draw, text, font, max_width):
     """
     lines = []
     
-    # 텍스트가 최대 너비보다 짧으면 그대로 반환
     if draw.textlength(text, font) <= max_width:
         return [text]
 
     current_line = ""
     for char in text:
-        # 현재 줄에 다음 글자를 추가했을 때 너비가 초과하는지 확인
         if draw.textlength(current_line + char, font) <= max_width:
             current_line += char
         else:
-            # 너비가 초과하면 현재 줄을 추가하고 새 줄 시작
             lines.append(current_line)
             current_line = char
     
-    # 마지막 줄 추가
     if current_line:
         lines.append(current_line)
         
@@ -56,10 +52,11 @@ def create_barcode_image(serial_number, product_code, product_name, lot, expiry,
     label = Image.new('RGB', (LABEL_WIDTH, LABEL_HEIGHT), 'white')
     draw = ImageDraw.Draw(label)
 
-    font_large = get_korean_font(20)
-    font_medium = get_korean_font(16)
-    font_small = get_korean_font(14)
-    font_tiny = get_korean_font(12)
+    # 👇👇👇 폰트 크기 전체적으로 상향 조정 👇👇👇
+    font_large = get_korean_font(26)   # 제품명 (20 -> 26)
+    font_medium = get_korean_font(22)  # 구분 (16 -> 22)
+    font_small = get_korean_font(18)   # 상세정보 (14 -> 18)
+    font_tiny = get_korean_font(14)    # 바코드 하단 (12 -> 14)
 
     # --- 라벨 내용 그리기 ---
     y_pos, margin = 10, 15
@@ -67,28 +64,26 @@ def create_barcode_image(serial_number, product_code, product_name, lot, expiry,
     prefix = "제품명: "
     prefix_width = draw.textlength(prefix, font=font_large)
     
-    # 👇 개선된 줄바꿈 함수 사용
     wrapped_lines = wrap_text(draw, product_name, font_large, LABEL_WIDTH - margin * 2 - prefix_width)
 
-    # 최대 2줄까지만 표시 (라벨 공간 제약)
+    # 최대 2줄까지만 표시
     for i, line in enumerate(wrapped_lines[:2]):
         if i == 0:
             draw.text((margin, y_pos), prefix + line, fill="black", font=font_large)
         else:
-            # 두 번째 줄은 들여쓰기 적용
             draw.text((margin + prefix_width, y_pos), line, fill="black", font=font_large)
-        y_pos += 24
+        y_pos += 28 # 👇 줄 간격 조정
 
-    y_pos += 6
-    draw.text((margin, y_pos), f"구분: {category}", fill="black", font=font_medium); y_pos += 24
-    draw.text((margin, y_pos), f"LOT: {lot} | 유통기한: {expiry}", fill="black", font=font_small); y_pos += 22
+    y_pos += 8 # 추가 간격
+    draw.text((margin, y_pos), f"구분: {category}", fill="black", font=font_medium); y_pos += 28 # 👇 줄 간격 조정
+    draw.text((margin, y_pos), f"LOT: {lot} | 유통기한: {expiry}", fill="black", font=font_small); y_pos += 24 # 👇 줄 간격 조정
     draw.text((margin, y_pos), f"보관위치: {location} | 버전: {version}", fill="black", font=font_small)
 
-    barcode_pil_img = barcode_pil_img.resize((LABEL_WIDTH - 40, 100))
-    label.paste(barcode_pil_img, (10, LABEL_HEIGHT - 170))
+    barcode_pil_img = barcode_pil_img.resize((LABEL_WIDTH - 40, 80)) # 바코드 높이 소폭 조정
+    label.paste(barcode_pil_img, (10, LABEL_HEIGHT - 140)) # 바코드 위치 조정
     
     barcode_text = f"{product_code}-{lot}-{expiry}-{version}"
     text_x = (LABEL_WIDTH - draw.textlength(barcode_text, font=font_tiny)) // 2
-    draw.text((text_x, LABEL_HEIGHT - 40), barcode_text, fill="black", font=font_tiny)
+    draw.text((text_x, LABEL_HEIGHT - 35), barcode_text, fill="black", font=font_tiny)
     
     return label
