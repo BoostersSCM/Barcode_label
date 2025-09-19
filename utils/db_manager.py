@@ -14,9 +14,9 @@ def connect_to_mysql():
         st.error(f"MySQL 연결 실패: {e}. 'secrets.toml' 설정을 확인하세요.")
         return None
 
-@st.cache_data(ttl=3600) # 1시간 동안 제품 목록 캐시
+@st.cache_data(ttl=3600)
 def load_product_data():
-    """DB에서 제품 목록을 불러와 DataFrame으로 반환합니다."""
+    """DB에서 전체 제품 목록을 불러와 DataFrame으로 반환합니다."""
     engine = connect_to_mysql()
     if engine is None:
         return pd.DataFrame()
@@ -36,3 +36,27 @@ def load_product_data():
     except Exception as e:
         st.error(f"제품 정보 로드 실패: {e}")
         return pd.DataFrame()
+
+# 👇👇👇 이 함수를 파일 하단에 추가하세요. 👇👇👇
+def find_product_info_by_barcode(barcode_to_find):
+    """
+    하나의 바코드를 사용하여 DB에서 해당하는 제품코드와 제품명을 찾습니다.
+    """
+    engine = connect_to_mysql()
+    if engine is None or not barcode_to_find:
+        return None
+
+    query = "SELECT resource_code, resource_name FROM boosters_items WHERE barcode = %(barcode)s LIMIT 1"
+    
+    try:
+        # 파라미터를 사용하여 안전하게 쿼리 실행
+        df = pd.read_sql(query, engine, params={"barcode": barcode_to_find})
+        
+        if not df.empty:
+            # 제품 정보를 딕셔너리로 반환
+            return df.iloc[0].to_dict()
+        else:
+            return None
+    except Exception as e:
+        st.error(f"바코드 조회 실패: {e}")
+        return None
