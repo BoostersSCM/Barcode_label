@@ -1,6 +1,6 @@
 import streamlit as st
 import io
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import pandas as pd
 from utils import db_manager, google_sheets_manager as gsm, barcode_generator
 
@@ -31,7 +31,7 @@ with st.form("inbound_form"):
     location = st.selectbox("보관위치", options=LOCATIONS)
     category = st.selectbox("구분", ["관리품", "표준품", "벌크표준", "샘플재고"])
 
-    # 👇 '구분' 선택에 따라 UI를 동적으로 변경
+    # '구분' 선택에 따라 UI를 동적으로 변경
     if category == "샘플재고":
         st.info("샘플재고는 LOT, 유통기한, 버전이 자동으로 설정됩니다.")
         lot_number = "SAMPLE"
@@ -45,8 +45,10 @@ with st.form("inbound_form"):
         
     else: # 관리품, 표준품, 벌크표준의 경우
         lot_number = st.text_input("LOT 번호")
+        # 유통기한 기본값을 오늘로부터 3년 후로 설정
         default_expiry_date = datetime.now().date() + timedelta(days=365 * 3)
         expiry_date = st.date_input("유통기한", value=default_expiry_date)
+        # 버전 기본값을 "R0"으로 설정
         version = st.text_input("버전", value="R0")
 
     submitted = st.form_submit_button("라벨 생성 및 입고 처리")
@@ -66,7 +68,7 @@ if submitted:
             product_name = PRODUCTS.get(product_code, "알 수 없는 제품")
             
             # 유통기한 및 폐기일자 처리
-            if isinstance(expiry_date, datetime.date):
+            if isinstance(expiry_date, date):
                 expiry_str = expiry_date.strftime('%Y-%m-%d')
                 disposal_date = expiry_date + timedelta(days=365)
                 disposal_date_str = disposal_date.strftime('%Y-%m-%d')
@@ -88,9 +90,19 @@ if submitted:
             now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
             inventory_data = [
-                serial_number, category, product_code, product_name, lot_number,
-                expiry_str, disposal_date_str, location, version, now_str,
-                "재고", "", ""
+                serial_number,      # A열: 바코드 번호 (일련번호)
+                category,           # B열: 구분
+                product_code,       # C열: 제품코드
+                product_name,       # D열: 제품명
+                lot_number,         # E열: LOT
+                expiry_str,         # F열: 유통기한
+                disposal_date_str,  # G열: 폐기기한
+                location,           # H열: 보관위치
+                version,            # I열: 버전
+                now_str,            # J열: 발행일시 (입고일시로 사용)
+                "재고",             # 상태
+                "",                 # 출고일시
+                ""                  # 출고처
             ]
             gsm.add_row(inventory_ws, inventory_data)
 
