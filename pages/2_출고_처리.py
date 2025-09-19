@@ -17,30 +17,35 @@ if not inventory_ws or not history_ws: st.stop()
 # --- 출고 처리 폼 ---
 st.info("여기에 바코드 스캐너로 라벨의 일련번호를 스캔하세요.")
 scanned_serial = st.text_input("스캔된 일련번호 (S/N)", key="barcode_input")
-destination = st.text_input("출고자 (예: 홍길동)")
+destination = st.text_input("출고처 (예: 온라인 판매, 매장 이동)")
 
 if st.button("출고 처리 실행"):
     if not scanned_serial or not destination:
-        st.warning("일련번호와 출고자를 모두 입력해주세요.")
+        st.warning("일련번호와 출고처를 모두 입력해주세요.")
     else:
         with st.spinner(f"일련번호 '{scanned_serial}' 처리 중..."):
             
             now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            update_data = {"상태": "출고됨", "출고일시": now_str, "출고자": destination}
+            update_data = {"상태": "출고됨", "출고일시": now_str, "출고처": destination}
             
             result = gsm.find_row_and_update(inventory_ws, scanned_serial, update_data)
 
             if result == "SUCCESS":
                 st.success(f"✅ 일련번호 '{scanned_serial}'이(가) 정상적으로 출고 처리되었습니다.")
                 
+                # 입출고 기록 추가 (안정성 강화)
+                product_code, product_name = "N/A", "N/A" # 기본값 설정
                 try:
                     cell = inventory_ws.find(scanned_serial, in_column=1)
                     row_data = inventory_ws.row_values(cell.row)
-                    product_code = row_data[1] 
+                    headers = inventory_ws.row_values(1)
+                    # 헤더 인덱스를 기반으로 안전하게 값 가져오기
+                    product_code = row_data[headers.index("제품코드")]
+                    product_name = row_data[headers.index("제품명")]
                 except Exception:
-                    product_code = "N/A"
+                    st.warning("출고 기록 시 제품 정보를 찾지 못했지만, 출고 처리는 완료되었습니다.")
 
-                history_data = [now_str, "출고", scanned_serial, product_code, "N/A", destination]
+                history_data = [now_str, "출고", scanned_serial, product_code, product_name, destination]
                 gsm.add_row(history_ws, history_data)
 
             elif result == "NOT_FOUND": st.error(f"❌ 오류: 일련번호 '{scanned_serial}'을(를) 찾을 수 없습니다.")
