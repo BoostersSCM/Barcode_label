@@ -31,7 +31,6 @@ def get_worksheet(spreadsheet, sheet_name):
         worksheet = spreadsheet.add_worksheet(title=sheet_name, rows="1000", cols="20")
         headers = []
         if sheet_name == "재고_현황":
-            # 요청하신 컬럼 순서로 헤더 정의
             headers = ["일련번호", "구분", "제품코드", "제품명", "LOT", "유통기한", "폐기기한", "보관위치", "버전", "입고일시", "상태", "출고일시", "출고처"]
         elif sheet_name == "입출고_기록":
             headers = ["타임스탬프", "유형", "일련번호", "제품코드", "제품명", "출고처"]
@@ -43,10 +42,22 @@ def get_worksheet(spreadsheet, sheet_name):
         return None
 
 def get_next_serial_number(worksheet):
-    """'재고_현황' 시트에서 다음 일련번호를 생성합니다."""
+    """
+    '재고_현황' 시트에서 다음 일련번호를 생성합니다. (빈 칸이나 숫자가 아닌 값을 무시하는 안정적인 방식)
+    """
     try:
-        serials = worksheet.col_values(1) # A열이 일련번호
-        return 1 if len(serials) <= 1 else int(serials[-1]) + 1
+        # A열(일련번호)의 모든 값을 가져옵니다.
+        serials = worksheet.col_values(1)
+        last_serial = 0  # 기본값을 0으로 설정
+        
+        # 리스트의 뒤에서부터 거꾸로 순회하며 유효한 숫자를 찾습니다.
+        for serial_str in reversed(serials):
+            # 값이 비어있지 않고, 숫자로만 구성되어 있는지 확인
+            if serial_str and serial_str.isdigit():
+                last_serial = int(serial_str)
+                break  # 첫 번째로 찾은 유효한 숫자가 가장 큰 값이므로 반복 중단
+        
+        return last_serial + 1
     except Exception as e:
         st.error(f"다음 일련번호 생성 실패: {e}")
         return None
