@@ -2,7 +2,7 @@ import streamlit as st
 import io
 from datetime import datetime, timedelta, date
 import pandas as pd
-from utils import db_manager, google_sheets_manager as gsm, barcode_generator
+from utils import db_manager, google_sheets_manager as gsm, barcode_generator, location_manager as lm
 
 st.set_page_config(page_title="입고 처리", page_icon="📥")
 st.title("📥 입고 (라벨 생성)")
@@ -12,10 +12,12 @@ product_df = db_manager.load_product_data()
 if product_df.empty:
     st.error("데이터베이스에서 제품 정보를 불러올 수 없습니다. 설정을 확인하세요.")
     st.stop()
-
 PRODUCTS = pd.Series(product_df.제품명.values, index=product_df.제품코드).to_dict()
-barcode_map = product_df.set_index('바코드')['제품코드'].to_dict()
 PRODUCT_CODES = list(PRODUCTS.keys())
+
+# 👇 보관위치 설정을 파일에서 동적으로 로드
+location_config = lm.load_config()
+LOCATIONS = lm.generate_location_options(location_config)
 
 # --- 구글 시트 연결 ---
 client = gsm.connect_to_google_sheets()
@@ -25,6 +27,7 @@ if not spreadsheet: st.stop()
 inventory_ws = gsm.get_worksheet(spreadsheet, "재고_현황")
 history_ws = gsm.get_worksheet(spreadsheet, "입출고_기록")
 if not inventory_ws or not history_ws: st.stop()
+
 
 # --- 콜백 함수 정의 ---
 def find_product_by_barcode():
@@ -36,9 +39,7 @@ def find_product_by_barcode():
             st.session_state.selected_product_code = product_info['resource_code']
         else:
             st.warning(f"'{scanned_barcode}'에 해당하는 제품을 DB에서 찾을 수 없습니다.")
-    # 콜백 실행 후 입력 필드 초기화
     st.session_state.barcode_scan_input = ""
-
 
 # --- 세션 상태 초기화 ---
 if "selected_product_code" not in st.session_state:
@@ -47,7 +48,6 @@ if "selected_product_code" not in st.session_state:
 # --- 입력 UI ---
 st.subheader("제품 정보 입력")
 
-# 👇 바코드 스캔 입력 필드를 st.form 밖으로 이동
 st.text_input(
     "⌨️ 바코드 스캔으로 제품 찾기",
     key="barcode_scan_input",
@@ -55,7 +55,6 @@ st.text_input(
     placeholder="여기에 '88...' 바코드를 스캔하고 Enter를 누르세요"
 )
 
-# 👇 st.form은 여기부터 시작
 with st.form("inbound_form"):
     try:
         selected_index = PRODUCT_CODES.index(st.session_state.selected_product_code)
@@ -69,7 +68,7 @@ with st.form("inbound_form"):
         format_func=lambda x: f"{x} ({PRODUCTS.get(x, '알수없음')})"
     )
     
-    location = st.selectbox("보관위치", options=[f"{zone}-{row:02d}-{col:02d}" for zone in 'ABCDE' for row in range(1, 6) for col in range(1, 4)])
+    location = st.selectbox("보관위치", options=LOCATIONS)
     category = st.selectbox("구분", ["관리품", "표준품", "벌크표준", "샘플재고"])
 
     if category == "샘플재고":
@@ -88,6 +87,7 @@ with st.form("inbound_form"):
 
 # --- 로직 처리 ---
 if submitted:
+    # (이하 로직은 이전과 동일)
     if category != "샘플재고" and not all([product_code, lot_number, expiry_date, version, location]):
         st.warning("모든 필드를 입력해주세요.")
     elif not all([product_code, location]):
@@ -126,7 +126,7 @@ if submitted:
             ]
             gsm.add_row(inventory_ws, inventory_data)
 
-            history_data = [now_str, "입고", serial_number, product_code, product_name, ""]
+            history_data = [now_str, "입고", serial_number, product_code, product_name, "", outbound_person]
             gsm.add_row(history_ws, history_data)
             
             st.info("스프레드시트에 입고 내역이 기록되었습니다.")
