@@ -12,7 +12,7 @@ if 'outbound_list' not in st.session_state:
     # 출고할 아이템들을 담을 리스트
     st.session_state.outbound_list = []
 
-# --- 데이터 로드 ---
+# --- 구글 시트 연결 ---
 client = gsm.connect_to_google_sheets()
 if not client: st.stop()
 spreadsheet = gsm.get_spreadsheet(client)
@@ -31,14 +31,12 @@ def add_item_to_outbound_list():
     # 이미 목록에 있는 일련번호인지 확인
     if any(item['code'] == scanned_code for item in st.session_state.outbound_list):
         st.warning(f"이미 목록에 추가된 코드입니다: {scanned_code}")
-        st.session_state.barcode_scan_input = ""
+        st.session_state.barcode_scan_input = "" # 입력 필드 초기화
         return
 
     item_to_add = None
     # 일련번호(S/N) 스캔 시
     if scanned_code.isdigit():
-        # 실제 재고가 있는지 확인 (선택사항이지만 좋은 기능)
-        # 이 예제에서는 바로 추가하지만, 실제로는 gsm.find_row 로직을 여기에 추가할 수 있습니다.
         item_to_add = {"type": "S/N", "code": scanned_code, "product_name": f"일련번호-{scanned_code}", "product_code": "N/A", "qty": 1}
     # 제품 바코드(88...) 스캔 시
     elif scanned_code.startswith('88'):
@@ -67,7 +65,7 @@ def add_item_to_outbound_list():
 st.info("바코드를 스캔하면 아래 '출고 목록'에 자동으로 추가됩니다.")
 
 st.text_input(
-    "스캔된 코드",
+    "스캔 입력",
     key="barcode_scan_input",
     on_change=add_item_to_outbound_list,
     placeholder="여기에 바코드를 연속으로 스캔하세요"
@@ -82,7 +80,7 @@ if not st.session_state.outbound_list:
 else:
     # 목록 아이템 UI
     for i, item in enumerate(st.session_state.outbound_list):
-        col1, col2, col3, col4 = st.columns([4, 2, 2, 1])
+        col1, col2, col3 = st.columns([5, 2, 1])
         
         with col1:
             st.write(f"**{item['product_name']}**")
@@ -91,22 +89,20 @@ else:
         with col2:
             # S/N의 경우 수량 변경 불가
             is_disabled = item['type'] == 'S/N'
-            st.session_state.outbound_list[i]['qty'] = st.number_input(
+            # 각 아이템의 수량은 st.session_state.outbound_list[i]['qty']에 저장됨
+            new_qty = st.number_input(
                 "수량", 
                 min_value=1, 
                 value=item['qty'], 
                 step=1, 
-                key=f"qty_{item['code']}",
+                key=f"qty_{item['code']}", # 각 위젯을 구분하기 위한 고유 키
                 disabled=is_disabled
             )
+            st.session_state.outbound_list[i]['qty'] = new_qty
         
         with col3:
-            # UI 정렬을 위한 빈 공간
-            st.write("")
-            st.write("")
-
-        with col4:
-            # 삭제 버튼
+            # UI 정렬을 위해 빈 공간 추가
+            st.write("") 
             if st.button("삭제", key=f"del_{item['code']}", type="secondary"):
                 st.session_state.outbound_list.pop(i)
                 st.rerun()
@@ -127,13 +123,13 @@ if submitted:
     else:
         success_count = 0
         fail_count = 0
+        total_items = len(st.session_state.outbound_list)
         
         progress_bar = st.progress(0, text="출고 처리 시작...")
 
         for i, item in enumerate(st.session_state.outbound_list):
             now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            # S/N 처리
             if item['type'] == 'S/N':
                 update_data = {"상태": "출고됨", "출고일시": now_str, "출고담당자": outbound_person}
                 result = gsm.find_row_and_update(inventory_ws, item['code'], update_data)
@@ -144,7 +140,6 @@ if submitted:
                 else:
                     fail_count += 1
             
-            # 제품 바코드 처리
             elif item['type'] == '제품':
                 history_data = [now_str, "출고", "N/A", item['product_code'], item['product_name'], item['qty'], outbound_person]
                 if gsm.add_row(history_ws, history_data):
@@ -152,15 +147,12 @@ if submitted:
                 else:
                     fail_count += 1
 
-            # 진행률 업데이트
-            progress_bar.progress((i + 1) / len(st.session_state.outbound_list), text=f"{item['product_name']} 처리 중...")
-            time.sleep(0.1) # API 호출 시 시각적 효과를 위한 딜레이
+            progress_bar.progress((i + 1) / total_items, text=f"({i+1}/{total_items}) {item['product_name']} 처리 중...")
+            time.sleep(0.1)
 
         progress_bar.empty()
         st.success(f"🚀 일괄 출고 처리 완료! 성공: {success_count}건, 실패: {fail_count}건")
         
-        # 처리 완료 후 목록 비우기
         st.session_state.outbound_list = []
-        # 0.5초 후 새로고침하여 목록이 비워진 것을 확인
-        time.sleep(0.5)
+        time.sleep(1)
         st.rerun()
