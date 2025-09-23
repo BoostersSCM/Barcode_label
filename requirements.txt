@@ -7,3 +7,4 @@ python-barcode
 Pillow
 pymysql
 sqlalchemy
+pytz
