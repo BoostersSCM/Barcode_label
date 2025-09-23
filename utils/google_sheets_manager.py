@@ -34,7 +34,7 @@ def get_worksheet(spreadsheet, sheet_name):
         if sheet_name == "재고_현황":
             headers = ["일련번호", "구분", "제품코드", "제품명", "LOT", "유통기한", "폐기기한", "보관위치", "버전", "입고일시", "상태", "출고일시", "출고담당자"]
         elif sheet_name == "입출고_기록":
-            # 👇 '수량' 컬럼 추가
+            # 👇 '수량', '출고담당자'가 모두 포함된 최종 헤더
             headers = ["타임스탬프", "유형", "일련번호", "제품코드", "제품명", "수량", "출고담당자"]
         if headers:
             worksheet.append_row(headers)
