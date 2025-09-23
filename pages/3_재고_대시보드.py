@@ -30,7 +30,6 @@ def clean_inventory_data(df):
 
 def clean_history_data(df):
     """입출고 기록 데이터프레임을 정제합니다."""
-    # 👇 '출고담당자'를 필수 컬럼에 추가
     required_cols = ["타임스탬프", "유형", "일련번호", "제품코드", "제품명", "수량", "출고담당자"]
     for col in required_cols:
         if col not in df.columns:
@@ -65,7 +64,22 @@ try:
 
     # --- 2. 입출고 전체 기록 표시 ---
     st.subheader("📜 입출고 전체 기록")
-    st.dataframe(df_history.sort_values(by="타임스탬프", ascending=False), use_container_width=True, hide_index=True)
+    
+    # 👇 '유형' 필터 추가
+    if not df_history.empty:
+        history_types = df_history["유형"].unique()
+        selected_types = st.multiselect(
+            "유형 필터 (입고/출고):",
+            options=history_types,
+            default=history_types
+        )
+        # 선택된 유형으로 데이터 필터링
+        filtered_history_df = df_history[df_history["유형"].isin(selected_types)]
+    else:
+        filtered_history_df = df_history
+
+    # 최신순으로 정렬하여 표시
+    st.dataframe(filtered_history_df.sort_values(by="타임스탬프", ascending=False), use_container_width=True, hide_index=True)
 
 except Exception as e:
     st.error(f"대시보드를 불러오는 중 오류가 발생했습니다: {e}")
