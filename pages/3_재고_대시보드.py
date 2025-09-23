@@ -15,6 +15,12 @@ inventory_ws = gsm.get_worksheet(spreadsheet, "재고_현황")
 history_ws = gsm.get_worksheet(spreadsheet, "입출고_기록")
 if not inventory_ws or not history_ws: st.stop()
 
+def to_kst_str(series):
+    """Pandas Series의 datetime을 KST 문자열로 변환합니다."""
+    # 문자열을 datetime 객체로 변환 (시간대 정보가 없는 naive 상태)
+    dt_series = pd.to_datetime(series, errors='coerce')
+    # UTC 시간대로 인식시킨 후, 'Asia/Seoul' 시간대로 변환
+    return dt_series.dt.tz_localize('UTC').dt.tz_convert('Asia/Seoul').dt.strftime('%Y-%m-%d %H:%M:%S')
 
 def clean_inventory_data(df):
     """재고 현황 데이터프레임을 정제합니다."""
@@ -26,6 +32,9 @@ def clean_inventory_data(df):
             df[col] = ""
     df['일련번호'] = pd.to_numeric(df['일련번호'], errors='coerce').fillna(0).astype(int)
     df['상태'] = df['상태'].astype(str).replace('', '재고').fillna('재고')
+    # 👇 입고/출고 시간을 KST로 변환
+    df['입고일시'] = to_kst_str(df['입고일시'])
+    df['출고일시'] = to_kst_str(df['출고일시'])
     return df[required_cols]
 
 def clean_history_data(df):
@@ -34,7 +43,8 @@ def clean_history_data(df):
     for col in required_cols:
         if col not in df.columns:
             df[col] = ""
-    df['타임스탬프'] = pd.to_datetime(df['타임스탬프'], errors='coerce')
+    # 👇 타임스탬프를 KST로 변환
+    df['타임스탬프'] = to_kst_str(df['타임스탬프'])
     df['수량'] = pd.to_numeric(df['수량'], errors='coerce').fillna(1).astype(int)
     return df[required_cols]
 
@@ -64,8 +74,6 @@ try:
 
     # --- 2. 입출고 전체 기록 표시 ---
     st.subheader("📜 입출고 전체 기록")
-    
-    # 👇 '유형' 필터 추가
     if not df_history.empty:
         history_types = df_history["유형"].unique()
         selected_types = st.multiselect(
@@ -73,12 +81,10 @@ try:
             options=history_types,
             default=history_types
         )
-        # 선택된 유형으로 데이터 필터링
         filtered_history_df = df_history[df_history["유형"].isin(selected_types)]
     else:
         filtered_history_df = df_history
 
-    # 최신순으로 정렬하여 표시
     st.dataframe(filtered_history_df.sort_values(by="타임스탬프", ascending=False), use_container_width=True, hide_index=True)
 
 except Exception as e:
