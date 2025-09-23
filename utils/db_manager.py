@@ -31,13 +31,15 @@ def load_product_data():
     ORDER BY resource_code
     '''
     try:
-        df = pd.read_sql(query, engine)
+        # 👇 with 구문을 사용해 안전하게 연결을 관리합니다.
+        # 작업이 끝나면 연결이 자동으로 닫히고, 오류 발생 시 롤백됩니다.
+        with engine.connect() as connection:
+            df = pd.read_sql(query, connection)
         return df
     except Exception as e:
         st.error(f"제품 정보 로드 실패: {e}")
         return pd.DataFrame()
 
-# 👇👇👇 이 함수를 파일 하단에 추가하세요. 👇👇👇
 def find_product_info_by_barcode(barcode_to_find):
     """
     하나의 바코드를 사용하여 DB에서 해당하는 제품코드와 제품명을 찾습니다.
@@ -49,11 +51,11 @@ def find_product_info_by_barcode(barcode_to_find):
     query = "SELECT resource_code, resource_name FROM boosters_items WHERE barcode = %(barcode)s LIMIT 1"
     
     try:
-        # 파라미터를 사용하여 안전하게 쿼리 실행
-        df = pd.read_sql(query, engine, params={"barcode": barcode_to_find})
+        # 👇 여기에도 with 구문을 적용하여 연결 안정성을 높입니다.
+        with engine.connect() as connection:
+            df = pd.read_sql(query, connection, params={"barcode": barcode_to_find})
         
         if not df.empty:
-            # 제품 정보를 딕셔너리로 반환
             return df.iloc[0].to_dict()
         else:
             return None
