@@ -9,7 +9,6 @@ st.title("📤 출고 처리 (일괄)")
 
 # --- 세션 상태 초기화 ---
 if 'outbound_list' not in st.session_state:
-    # 출고할 아이템들을 담을 리스트
     st.session_state.outbound_list = []
 
 # --- 구글 시트 연결 ---
@@ -28,18 +27,16 @@ def add_item_to_outbound_list():
     if not scanned_code:
         return
 
-    # 이미 목록에 있는 일련번호인지 확인
     if any(item['code'] == scanned_code for item in st.session_state.outbound_list):
         st.warning(f"이미 목록에 추가된 코드입니다: {scanned_code}")
-        st.session_state.barcode_scan_input = "" # 입력 필드 초기화
+        st.session_state.barcode_scan_input = ""
         return
 
     item_to_add = None
-    # 일련번호(S/N) 스캔 시
-    if scanned_code.isdigit():
-        item_to_add = {"type": "S/N", "code": scanned_code, "product_name": f"일련번호-{scanned_code}", "product_code": "N/A", "qty": 1}
-    # 제품 바코드(88...) 스캔 시
-    elif scanned_code.startswith('88'):
+    
+    # 👇👇👇 문제 해결 2: 조건문 순서 변경 👇👇👇
+    # '88...'로 시작하는지 먼저 확인하여 제품 바코드로 올바르게 인식하도록 수정
+    if scanned_code.startswith('88'):
         product_info = db_manager.find_product_info_by_barcode(scanned_code)
         if product_info:
             item_to_add = {
@@ -51,13 +48,16 @@ def add_item_to_outbound_list():
             }
         else:
             st.error(f"DB에 등록되지 않은 제품 바코드입니다: {scanned_code}")
+    
+    elif scanned_code.isdigit():
+        item_to_add = {"type": "S/N", "code": scanned_code, "product_name": f"일련번호-{scanned_code}", "product_code": "N/A", "qty": 1}
+    
     else:
         st.error(f"유효하지 않은 코드입니다: {scanned_code}")
 
     if item_to_add:
-        st.session_state.outbound_list.insert(0, item_to_add) # 새 항목을 맨 위에 추가
+        st.session_state.outbound_list.insert(0, item_to_add)
     
-    # 입력 필드 초기화
     st.session_state.barcode_scan_input = ""
 
 
@@ -78,7 +78,6 @@ st.subheader("🛒 출고 목록")
 if not st.session_state.outbound_list:
     st.caption("스캔된 품목이 없습니다.")
 else:
-    # 목록 아이템 UI
     for i, item in enumerate(st.session_state.outbound_list):
         col1, col2, col3 = st.columns([5, 2, 1])
         
@@ -87,21 +86,22 @@ else:
             st.caption(f"유형: {item['type']} | 코드: {item['code']}")
         
         with col2:
-            # S/N의 경우 수량 변경 불가
             is_disabled = item['type'] == 'S/N'
-            # 각 아이템의 수량은 st.session_state.outbound_list[i]['qty']에 저장됨
+            
+            # 👇👇👇 문제 해결 1: 수정한 값을 session_state에 다시 저장 👇👇👇
+            # st.number_input에서 변경된 값을 new_qty로 받고,
+            # 이 값을 즉시 st.session_state.outbound_list의 해당 항목에 업데이트합니다.
             new_qty = st.number_input(
                 "수량", 
                 min_value=1, 
                 value=item['qty'], 
                 step=1, 
-                key=f"qty_{item['code']}", # 각 위젯을 구분하기 위한 고유 키
+                key=f"qty_{item['code']}",
                 disabled=is_disabled
             )
             st.session_state.outbound_list[i]['qty'] = new_qty
         
         with col3:
-            # UI 정렬을 위해 빈 공간 추가
             st.write("") 
             if st.button("삭제", key=f"del_{item['code']}", type="secondary"):
                 st.session_state.outbound_list.pop(i)
