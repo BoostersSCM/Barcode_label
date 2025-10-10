@@ -2,79 +2,104 @@ import streamlit as st
 import io
 from datetime import datetime, timedelta, date
 import pandas as pd
-from utils import db_manager, barcode_generator
 import pytz
+
+from utils import db_manager
+from utils import barcode_generator  # 기존 파일 그대로 사용
 
 st.set_page_config(page_title="입고 처리", page_icon="📥")
 st.title("📥 입고 (라벨 생성)")
 
-# --- 제품 데이터 로드 ---
-product_df = db_manager.load_product_data()
-if product_df.empty:
-    st.error("ERP DB에서 제품 정보를 불러올 수 없습니다.")
+# 1) 제품 데이터 로드 (ERP)
+try:
+    product_df = db_manager.load_product_data()
+except Exception as e:
+    st.error(f"제품정보 로드 실패: {e}")
+    st.stop()
+
+if product_df is None or product_df.empty:
+    st.error("ERP DB에서 제품 정보를 불러오지 못했습니다.")
     st.stop()
 
 PRODUCTS = pd.Series(product_df.제품명.values, index=product_df.제품코드).to_dict()
 PRODUCT_CODES = list(PRODUCTS.keys())
 
-# --- UI ---
+# 2) 입력 UI
 st.subheader("제품 정보 입력")
 with st.form("inbound_form"):
     product_code = st.selectbox("📦 제품", options=PRODUCT_CODES, format_func=lambda x: f"{x} ({PRODUCTS.get(x)})")
-    location = st.text_input("보관위치 (예: A-01-01)")
+    storage_location = st.text_input("보관위치 (예: A-01-01)")
     category = st.selectbox("구분", ["관리품", "표준품", "벌크표준", "샘플재고"])
 
     if category == "샘플재고":
-        lot_number, expiry_date, version = "SAMPLE", "N/A", "N/A"
+        lot_number, expiration_date, version = "SAMPLE", "N/A", "N/A"
         st.text_input("LOT", value=lot_number, disabled=True)
+        st.text_input("유통기한(expiration_date)", value=expiration_date, disabled=True)
+        st.text_input("버전(version)", value=version, disabled=True)
     else:
         lot_number = st.text_input("LOT 번호")
-        expiry_date = st.date_input("유통기한", value=datetime.now().date() + timedelta(days=365 * 3))
-        version = st.text_input("버전", value="R0")
+        expiration_date_obj = st.date_input("유통기한(expiration_date)", value=datetime.now().date() + timedelta(days=365*3))
+        version = st.text_input("버전(version)", value="R0")
 
     submitted = st.form_submit_button("라벨 생성 및 입고 처리")
 
-# --- 처리 ---
+# 3) 처리 로직
 if submitted:
-    if not all([product_code, location]):
+    if not all([product_code, storage_location]):
         st.warning("제품코드와 보관위치는 필수입니다.")
         st.stop()
 
-    serial_number = int(datetime.now().timestamp())
+    serial_number = int(datetime.now().timestamp())  # 예시 S/N (환경에 맞게 교체 가능)
     product_name = PRODUCTS.get(product_code, "알 수 없는 제품")
-    expiry_str = expiry_date.strftime('%Y-%m-%d') if isinstance(expiry_date, date) else "N/A"
-    disposal_date_str = (expiry_date + timedelta(days=365)).strftime('%Y-%m-%d') if isinstance(expiry_date, date) else "N/A"
 
+    # expiration_date, disposal_date 계산
+    if category == "샘플재고":
+        expiration_date_str = "N/A"
+        disposal_date_str = "N/A"
+    else:
+        if isinstance(expiration_date_obj, date):
+            expiration_date_str = expiration_date_obj.strftime("%Y-%m-%d")
+            disposal_date_str = (expiration_date_obj + timedelta(days=365)).strftime("%Y-%m-%d")
+        else:
+            expiration_date_str = "N/A"
+            disposal_date_str = "N/A"
+
+    # received_at (KST)
     kst = pytz.timezone('Asia/Seoul')
-    now_kst_str = datetime.now(kst).strftime('%Y-%m-%d %H:%M:%S')
+    received_at_str = datetime.now(kst).strftime('%Y-%m-%d %H:%M:%S')
 
-    label_img = barcode_generator.create_barcode_image(serial_number, product_code, product_name, lot_number, expiry_str, version, location, category)
+    # 라벨 이미지
+    label_img = barcode_generator.create_barcode_image(
+        serial_number, product_code, product_name, lot_number,
+        expiration_date_str, version, storage_location, category
+    )
     st.image(label_img, caption=f"라벨 (S/N: {serial_number})")
 
-    db_manager.insert_inventory_record({
+    # DB INSERT (영문 스키마 파라미터)
+    inv_ok = db_manager.insert_inventory_record({
         "serial_number": serial_number,
         "category": category,
         "product_code": product_code,
         "product_name": product_name,
         "lot": lot_number,
-        "expiry": expiry_str,
+        "expiration_date": expiration_date_str,
         "disposal_date": disposal_date_str,
-        "location": location,
+        "storage_location": storage_location,
         "version": version,
-        "inbound_datetime": now_kst_str,
-        "status": "재고",
-        "outbound_datetime": "",
-        "outbound_person": ""
+        "received_at": received_at_str
     })
 
-    db_manager.insert_inout_record({
-        "timestamp": now_kst_str,
+    inout_ok = db_manager.insert_inout_record({
+        "timestamp": received_at_str,
         "type": "입고",
-        "serial_number": serial_number,
+        "serial_number": str(serial_number),
         "product_code": product_code,
         "product_name": product_name,
-        "qty": 1,
-        "outbound_person": ""
+        "quantity": 1,
+        "handler": ""
     })
 
-    st.success("✅ 입고 완료! SCM DB에 저장되었습니다.")
+    if inv_ok and inout_ok:
+        st.success("✅ 입고 완료! SCM DB에 저장되었습니다.")
+    else:
+        st.error("입고 처리 중 일부 단계에서 오류가 발생했습니다.")
