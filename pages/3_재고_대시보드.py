@@ -5,9 +5,9 @@ from utils import db_manager
 st.set_page_config(page_title="재고 대시보드", page_icon="📊", layout="wide")
 st.title("📊 재고 대시보드")
 
-engine = db_manager.connect_to_mysql()
+engine = db_manager.connect_to_scm()
 if engine is None:
-    st.error("DB 연결 실패")
+    st.error("SCM DB 연결 실패")
     st.stop()
 
 df_inventory = pd.read_sql("SELECT * FROM Retained_sample_status", engine)
