@@ -8,12 +8,10 @@ def insert_inventory_record(data: dict) -> bool:
 
     query = text("""
         INSERT INTO `Retained_sample_status`
-        (serial_number, category, product_code, product_name, lot, expiry, disposal_date,
-         location, version, inbound_datetime, status, outbound_datetime, outbound_person)
+        (serial_number, category, product_code, product_name, lot, expiration_date, disposal_date, storage_location, version, received_at)
         VALUES
         (:serial_number, :category, :product_code, :product_name, :lot,
-         :expiry, :disposal_date, :location, :version, :inbound_datetime,
-         :status, :outbound_datetime, :outbound_person)
+         :expiration_date, :disposal_date, :location, :version, :inbound_datetime)
     """)
 
     try:
@@ -33,7 +31,7 @@ def insert_inout_record(data: dict) -> bool:
 
     query = text("""
         INSERT INTO `Retained_sample_in_out`
-        (`timestamp`, `type`, serial_number, product_code, product_name, qty, outbound_person)
+        (`timestamp`, `type`, serial_number, product_code, product_name, quantity, handler)
         VALUES
         (:timestamp, :type, :serial_number, :product_code, :product_name, :qty, :outbound_person)
     """)
