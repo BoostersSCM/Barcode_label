@@ -6,15 +6,15 @@ from sqlalchemy import create_engine, text
 # ① ERP DB (제품 정보 조회용)
 # ============================================================
 @st.cache_resource
-def connect_to_erp():
-    """ERP DB (제품정보) 연결"""
+def connect_to_scm():
+    """SCM DB 연결 (재고 및 입출고 데이터 저장용)"""
     try:
         db_info = {
-            "host": st.secrets["db_server_erp"],
-            "port": st.secrets["db_port_erp"],
-            "user": st.secrets["db_user_erp"],
-            "passwd": st.secrets["db_password_erp"],
-            "db": st.secrets["db_name_erp"]
+            "host": st.secrets["db_server_scm"],
+            "port": st.secrets["db_port_scm"],
+            "user": st.secrets["db_user_scm"],
+            "passwd": st.secrets["db_password_scm"],
+            "db": st.secrets["db_name_scm"]
         }
         conn_str = (
             f"mysql+pymysql://{db_info['user']}:{db_info['passwd']}@"
@@ -23,7 +23,7 @@ def connect_to_erp():
         engine = create_engine(conn_str)
         return engine
     except Exception as e:
-        st.error(f"ERP DB 연결 실패: {e}")
+        st.error(f"SCM DB 연결 실패: {e}")
         return None
 
 
