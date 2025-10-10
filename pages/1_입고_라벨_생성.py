@@ -11,7 +11,7 @@ st.title("📥 입고 (라벨 생성)")
 # --- 제품 데이터 로드 ---
 product_df = db_manager.load_product_data()
 if product_df.empty:
-    st.error("데이터베이스에서 제품 정보를 불러올 수 없습니다. 설정을 확인하세요.")
+    st.error("제품정보 DB에서 데이터를 불러올 수 없습니다.")
     st.stop()
 
 PRODUCTS = pd.Series(product_df.제품명.values, index=product_df.제품코드).to_dict()
@@ -19,8 +19,6 @@ PRODUCT_CODES = list(PRODUCTS.keys())
 
 # --- UI ---
 st.subheader("제품 정보 입력")
-st.text_input("⌨️ 바코드 스캔", key="barcode_scan_input", placeholder="바코드 입력 후 Enter")
-
 with st.form("inbound_form"):
     product_code = st.selectbox("📦 제품", options=PRODUCT_CODES, format_func=lambda x: f"{x} ({PRODUCTS.get(x)})")
     location = st.text_input("보관위치 (예: A-01-01)")
@@ -29,8 +27,6 @@ with st.form("inbound_form"):
     if category == "샘플재고":
         lot_number, expiry_date, version = "SAMPLE", "N/A", "N/A"
         st.text_input("LOT", value=lot_number, disabled=True)
-        st.text_input("유통기한", value=expiry_date, disabled=True)
-        st.text_input("버전", value=version, disabled=True)
     else:
         lot_number = st.text_input("LOT 번호")
         expiry_date = st.date_input("유통기한", value=datetime.now().date() + timedelta(days=365 * 3))
@@ -44,16 +40,15 @@ if submitted:
         st.warning("제품코드와 보관위치는 필수입니다.")
         st.stop()
 
-    serial_number = int(datetime.now().timestamp())  # 예시 시리얼 생성 (DB AutoIncrement 가능)
+    serial_number = int(datetime.now().timestamp())  # 예시 S/N
     product_name = PRODUCTS.get(product_code, "알 수 없는 제품")
-
     expiry_str = expiry_date.strftime('%Y-%m-%d') if isinstance(expiry_date, date) else "N/A"
     disposal_date_str = (expiry_date + timedelta(days=365)).strftime('%Y-%m-%d') if isinstance(expiry_date, date) else "N/A"
 
     kst = pytz.timezone('Asia/Seoul')
     now_kst_str = datetime.now(kst).strftime('%Y-%m-%d %H:%M:%S')
 
-    # 바코드 이미지 생성
+    # 바코드 생성
     label_img = barcode_generator.create_barcode_image(serial_number, product_code, product_name, lot_number, expiry_str, version, location, category)
     st.image(label_img, caption=f"라벨 (S/N: {serial_number})")
 
@@ -73,6 +68,7 @@ if submitted:
         "outbound_datetime": "",
         "outbound_person": ""
     })
+
     db_manager.insert_inout_record({
         "timestamp": now_kst_str,
         "type": "입고",
@@ -83,4 +79,4 @@ if submitted:
         "outbound_person": ""
     })
 
-    st.success("✅ 입고 완료! 데이터가 DB에 저장되었습니다.")
+    st.success("✅ 입고 완료! SCM DB에 저장되었습니다.")
