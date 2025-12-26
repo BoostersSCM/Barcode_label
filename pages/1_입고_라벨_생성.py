@@ -6,6 +6,12 @@ import pytz
 
 from utils import db_manager
 from utils import barcode_generator  # 기존 파일 그대로 사용
+from utils import auth_manager  # 👈 임포트 추가
+
+st.set_page_config(...) # 기존 설정 코드
+
+# 👇 인증 체크 추가 (이 두 줄을 반드시 추가하세요)
+auth_manager.require_auth()
 
 st.set_page_config(page_title="입고 처리", page_icon="📥")
 st.title("📥 입고 (라벨 생성)")
