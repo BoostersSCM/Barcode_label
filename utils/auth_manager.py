@@ -58,7 +58,7 @@ def _handle_login_flow():
     st.markdown(f'''
         <a href="{auth_url}" target="_self">
             <button style="padding:10px 20px; background-color:#4285F4; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">
-                Google 계정으로 로그인
+                Boosters 계정으로 로그인
             </button>
         </a>
     ''', unsafe_allow_html=True)
