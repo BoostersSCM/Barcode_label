@@ -5,8 +5,11 @@ import time
 from sqlalchemy import text
 
 from utils import db_manager
+from utils import auth_manager  # 👈 임포트 추가
 
 st.set_page_config(page_title="출고 처리", page_icon="📤")
+# 👇 인증 체크 추가 (이 두 줄을 반드시 추가하세요)
+auth_manager.require_auth()
 st.title("📤 출고 처리 (바코드 스캔 지원)")
 
 # 세션 초기화
