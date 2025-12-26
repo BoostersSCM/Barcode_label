@@ -1,7 +1,10 @@
 import streamlit as st
 from utils import location_manager as lm
+from utils import auth_manager  # 👈 임포트 추가
 
 st.set_page_config(page_title="보관위치 관리", page_icon="⚙️")
+# 👇 인증 체크 추가 (이 두 줄을 반드시 추가하세요)
+auth_manager.require_auth()
 st.title("⚙️ 보관위치 관리")
 
 st.info("이곳에서 재고를 보관할 구역(Zone)과 크기를 설정할 수 있습니다.")
