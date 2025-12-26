@@ -1,8 +1,11 @@
 import streamlit as st
 import pandas as pd
 from utils import db_manager
+from utils import auth_manager
 
 st.set_page_config(page_title="재고 대시보드", page_icon="📊", layout="wide")
+# 👇 인증 체크 추가 (이 두 줄을 반드시 추가하세요)
+auth_manager.require_auth()
 st.title("📊 재고 대시보드")
 
 engine = db_manager.connect_to_scm()
